@@ -58,6 +58,23 @@ export type CinemaBreakdownResponse = {
     city: string | null;
     cinema_id: string | null;
   };
+const API_BASE_URL = "https://capstone-project-api-cinetrack.vercel.app";
+
+type ApiResponse<T> = {
+  success: boolean;
+  data: T;
+};
+
+type CinemaBreakdown = {
+  cinema_id: string;
+  metrics: {
+    total_tickets: number;
+    total_revenue: number;
+    active_studios: number;
+  };
+};
+
+type CinemasResponse = {
   summary: {
     total_cinemas: number;
     active_cinemas: number;

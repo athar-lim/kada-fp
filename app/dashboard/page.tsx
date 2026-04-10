@@ -75,6 +75,15 @@ type DashboardPayload = {
   topMovies: TopMovie[] | null;
   health: HealthResponse | null;
 };
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
+import { DashboardMetrics, getDashboardMetrics } from "@/lib/cinetrack-api";
 
 type DashboardErrors = Partial<Record<keyof DashboardPayload, string>>;
 
@@ -169,6 +178,12 @@ export default function DashboardPage() {
     movieStats: null,
     topMovies: null,
     health: null,
+  const [selectedFranchiseTab, setSelectedFranchiseTab] = useState("all");
+  const [apiMetrics, setApiMetrics] = useState<DashboardMetrics | null>(null);
+  const [apiMetricsError, setApiMetricsError] = useState(false);
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>({
+    from: new Date(2026, 2, 24),
+    to: new Date(2026, 2, 29),
   });
   const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
@@ -208,6 +223,45 @@ export default function DashboardPage() {
         topMovies: results[5].status === "fulfilled" ? results[5].value : null,
         health: results[6].status === "fulfilled" ? results[6].value : null,
       });
+    // Effect ini mengambil ringkasan metrik live dari backend saat filter berubah.
+    // State lama dipertahankan sampai request baru selesai agar UI tetap stabil.
+    const loadMetrics = async () => {
+      try {
+        const metrics = await getDashboardMetrics({
+          cityId: selectedCity,
+          cinemaId: selectedCinema,
+        });
+
+        if (cancelled) return;
+        setApiMetrics(metrics);
+        setApiMetricsError(false);
+      } catch {
+        if (cancelled) return;
+        setApiMetricsError(true);
+      }
+    };
+
+    loadMetrics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCity, selectedCinema]);
+
+  const visibleCinemaOptions = useMemo(() => {
+    const filteredCinemas = cinemaNetwork.filter((cinema) => {
+      if (selectedCity === "all") return true;
+      return cinema.cityId === selectedCity;
+    });
+
+    return [
+      { id: "all", name: "All Cinemas" },
+      ...filteredCinemas.map((cinema) => ({
+        id: cinema.id,
+        name: cinema.name,
+      })),
+    ];
+  }, [selectedCity]);
 
       setErrors({
         summary:
@@ -254,6 +308,137 @@ export default function DashboardPage() {
     if (!data.cinemas) return [{ id: "all", name: "All City" }];
 
     const uniqueCities = [...new Set(data.cinemas.breakdown.map((item) => item.city))].sort();
+  const activeFranchiseCount = latestByCinema.filter(
+    (row) => row.status === "ACTIVE"
+  ).length;
+  const nonActiveFranchiseCount = latestByCinema.filter(
+    (row) => row.status !== "ACTIVE"
+  ).length;
+  const maintenanceCount = latestByCinema.filter(
+    (row) => row.status === "MAINTENANCE"
+  ).length;
+  const totalVisibleFranchise = latestByCinema.length;
+
+  const avgOccupancy =
+    filteredFranchiseRows.length > 0
+      ? filteredFranchiseRows.reduce((acc, row) => acc + row.occupancy, 0) /
+        filteredFranchiseRows.length
+      : 0;
+
+  const metricCardsData = [
+    {
+      title: "Total Tickets Sold",
+      value: (apiMetrics?.totalTickets ?? totalTickets).toLocaleString("en-US"),
+      trend: apiMetrics ? null : calculateTrend(dailySummary.map((item) => item.tickets)),
+      trendLabel: apiMetrics ? null : "vs start of period",
+      subtitle: apiMetrics
+        ? "Live API snapshot. Date filter is not supported yet."
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : "Across the selected period",
+      chartData:
+        apiMetrics?.ticketsChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.tickets })),
+      stroke: "hsl(var(--chart-1))",
+      icon: <Ticket className="h-4 w-4 text-muted-foreground" />,
+    },
+    {
+      title: "Period Revenue",
+      value: formatCompactCurrency(apiMetrics?.totalRevenue ?? totalRevenue),
+      trend: apiMetrics ? null : calculateTrend(dailySummary.map((item) => item.revenue)),
+      trendLabel: apiMetrics ? null : "vs start of period",
+      subtitle: apiMetrics
+        ? "Gross ticket revenue from the live backend."
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : "Gross ticket revenue",
+      chartData:
+        apiMetrics?.revenueChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.revenue })),
+      stroke: "hsl(var(--chart-2))",
+      icon: <DollarSign className="h-4 w-4 text-muted-foreground" />,
+    },
+    {
+      title: "Active Franchises",
+      value: `${apiMetrics?.activeCinemas ?? activeFranchiseCount} / ${
+        apiMetrics?.totalCinemas ?? totalVisibleFranchise
+      }`,
+      trend: null,
+      trendLabel: null,
+      subtitle: apiMetrics
+        ? `${apiMetrics.inactiveCinemas} inactive in the current API filter`
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : `${maintenanceCount} under maintenance`,
+      chartData:
+        apiMetrics?.activeChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.active })),
+      stroke: "hsl(var(--chart-3))",
+      icon: <Building2 className="h-4 w-4 text-muted-foreground" />,
+    },
+    {
+      title: "Average Occupancy",
+      value:
+        apiMetrics && apiMetrics.averageOccupancy === null
+          ? "N/A"
+          : `${(apiMetrics?.averageOccupancy ?? avgOccupancy).toFixed(1)}%`,
+      trend:
+        apiMetrics && apiMetrics.averageOccupancy === null
+          ? null
+          : apiMetrics
+          ? null
+          : calculateTrend(dailySummary.map((item) => item.occupancy)),
+      trendLabel: apiMetrics ? null : "vs start of period",
+      subtitle: apiMetrics
+        ? "Occupancy is not exposed by the API yet."
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : "Network-wide average",
+      chartData:
+        apiMetrics?.occupancyChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.occupancy })),
+      stroke: "hsl(var(--chart-4))",
+      icon: <Percent className="h-4 w-4 text-muted-foreground" />,
+    },
+  ];
+
+  const occupancyScale = avgOccupancy > 0 ? avgOccupancy / 73.2 : 0;
+  const baseHourlyCurve = [12, 15, 35, 60, 75, 95, 90, 20];
+  const hourlyLabels = ["00", "04", "08", "12", "16", "19", "21", "24"];
+
+  const hourlyOccupancyData = hourlyLabels.map((hour, index) => ({
+    hour,
+    occupancy: Number(
+      Math.min(100, Math.max(0, baseHourlyCurve[index] * occupancyScale)).toFixed(1)
+    ),
+  }));
+
+  const franchiseSummary = Object.values(
+    filteredFranchiseRows.reduce<
+      Record<
+        string,
+        {
+          name: string;
+          city: string;
+          cityId: string;
+          tickets: number;
+          occupancySum: number;
+          count: number;
+          status: NodeStatus;
+        }
+      >
+    >((acc, row) => {
+      if (!acc[row.cinemaId]) {
+        acc[row.cinemaId] = {
+          name: row.cinemaName,
+          city: row.cityLabel,
+          cityId: row.cityId,
+          tickets: 0,
+          occupancySum: 0,
+          count: 0,
+          status: row.status,
+        };
+      }
 
     return [
       { id: "all", name: "All City" },

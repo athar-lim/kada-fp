@@ -1,9 +1,9 @@
 "use client";
 
-import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import type { ReactNode } from "react";
+import { useTheme } from "@/components/ui/theme-provider";
 
 function ThemeOptionButton({
   active,
