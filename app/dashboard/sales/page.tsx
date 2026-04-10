@@ -19,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bar,
   BarChart,
@@ -145,6 +144,12 @@ const seatCategories = [
   { name: 'Sweetbox', price: 150000 },
 ];
 
+const paymentConfigs = {
+  QRIS: { adminFee: 2000, successRate: 0.98 },
+  Cash: { adminFee: 500, successRate: 1 },
+  CC: { adminFee: 3500, successRate: 0.95 },
+} as const;
+
 const tickets = Array.from({ length: 270 }).map((_, i) => {
   const activeSchedules = schedules.filter((s) => s.status !== 'Cancelled');
   const schedule = activeSchedules[i % activeSchedules.length];
@@ -218,6 +223,7 @@ const getStatusBadgeClass = (status: 'On-Time' | 'Delayed' | 'Cancelled') => {
   return "bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400";
 };
 
+// Page ini merangkum penjualan lalu menurunkannya ke demand, pricing, forecast, dan risk.
 export default function SalesAnalyticsPage() {
   const [selectedCity, setSelectedCity] = useState("all");
   const [selectedCinema, setSelectedCinema] = useState("all");
@@ -225,8 +231,6 @@ export default function SalesAnalyticsPage() {
     from: new Date(2026, 2, 24),
     to: new Date(2026, 2, 29),
   });
-  const [revenueView, setRevenueView] = useState<"yearly" | "quarterly" | "monthly">("yearly");
-  const [selectedRevenueYear, setSelectedRevenueYear] = useState("2026");
 
   const visibleCinemaOptions = useMemo(() => {
     const filteredCinemas = cinemas.filter((cinema) => {
@@ -298,6 +302,10 @@ export default function SalesAnalyticsPage() {
 
   const totalTicketsSold = filteredTickets.length;
   const totalRevenue = filteredTickets.reduce((acc, ticket) => acc + ticket.price, 0);
+  const activeSchedulesOnly = filteredSchedules.filter((schedule) => schedule.status !== "Cancelled");
+  const totalCapacity = activeSchedulesOnly.reduce((acc, schedule) => acc + schedule.capacity, 0);
+  const avgTicketPrice = totalTicketsSold > 0 ? totalRevenue / totalTicketsSold : 0;
+  const revenuePerSeat = totalCapacity > 0 ? totalRevenue / totalCapacity : 0;
 
   const dayCount = effectiveRange
     ? Math.max(
@@ -353,75 +361,7 @@ export default function SalesAnalyticsPage() {
     });
   }, [selectedCity, selectedCinema]);
 
-  const availableRevenueYears = useMemo(() => {
-    return [...new Set(filteredRevenueHistory.map((item) => item.year.toString()))].sort();
-  }, [filteredRevenueHistory]);
-
-  const yearlyRevenueData = useMemo(() => {
-    return Object.entries(
-      filteredRevenueHistory.reduce<Record<string, number>>((acc, item) => {
-        acc[item.year] = (acc[item.year] || 0) + item.revenue;
-        return acc;
-      }, {})
-    ).map(([year, revenue]) => ({ label: year, revenue }));
-  }, [filteredRevenueHistory]);
-
-  const quarterlyRevenueData = useMemo(() => {
-    const targetYear = Number(selectedRevenueYear);
-
-    const grouped = filteredRevenueHistory
-      .filter((item) => item.year === targetYear)
-      .reduce<Record<string, number>>((acc, item) => {
-        acc[item.quarter] = (acc[item.quarter] || 0) + item.revenue;
-        return acc;
-      }, {});
-
-    return ["Q1", "Q2", "Q3", "Q4"].map((quarter) => ({
-      label: quarter,
-      revenue: grouped[quarter] || 0,
-    }));
-  }, [filteredRevenueHistory, selectedRevenueYear]);
-
-  const monthlyRevenueData = useMemo(() => {
-    const targetYear = Number(selectedRevenueYear);
-
-    const grouped = filteredRevenueHistory
-      .filter((item) => item.year === targetYear)
-      .reduce<Record<number, number>>((acc, item) => {
-        acc[item.month] = (acc[item.month] || 0) + item.revenue;
-        return acc;
-      }, {});
-
-    return Array.from({ length: 12 }).map((_, month) => ({
-      label: format(new Date(targetYear, month, 1), "MMM"),
-      revenue: grouped[month] || 0,
-    }));
-  }, [filteredRevenueHistory, selectedRevenueYear]);
-
-  const revenueChartData =
-    revenueView === "yearly"
-      ? yearlyRevenueData
-      : revenueView === "quarterly"
-      ? quarterlyRevenueData
-      : monthlyRevenueData;
-
-  const revenueChartTitle =
-    revenueView === "yearly"
-      ? "Yearly Revenue"
-      : revenueView === "quarterly"
-      ? `Quarterly Revenue (${selectedRevenueYear})`
-      : `Monthly Revenue (${selectedRevenueYear})`;
-
-  const revenuePerFilm = movies
-    .map((movie) => {
-      const movieTickets = filteredTickets.filter((ticket) => ticket.movieId === movie.id);
-      const revenue = movieTickets.reduce((acc, ticket) => acc + ticket.price, 0);
-      return { name: movie.title, revenue };
-    })
-    .filter((item) => item.revenue > 0)
-    .sort((a, b) => b.revenue - a.revenue);
-
-  const occupancyPerCinema = cinemas
+  const revenuePerCinema = cinemas
     .filter((cinema) => {
       const matchCity =
         selectedCity === "all"
@@ -434,34 +374,231 @@ export default function SalesAnalyticsPage() {
       return matchCity && matchCinema;
     })
     .map((cinema) => {
-      const cinemaSchedules = filteredSchedules.filter(
-        (schedule) => schedule.cinemaId === cinema.id && schedule.status !== 'Cancelled'
-      );
-      const totalCapacity = cinemaSchedules.reduce((acc, schedule) => acc + schedule.capacity, 0);
-      const ticketsSold = filteredTickets.filter((ticket) => ticket.cinemaId === cinema.id).length;
-      const occupancy = totalCapacity > 0 ? (ticketsSold / totalCapacity) * 100 : 0;
+      const cinemaSchedules = activeSchedulesOnly.filter((schedule) => schedule.cinemaId === cinema.id);
+      const cinemaCapacity = cinemaSchedules.reduce((acc, schedule) => acc + schedule.capacity, 0);
+      const cinemaTickets = filteredTickets.filter((ticket) => ticket.cinemaId === cinema.id);
+      const revenue = cinemaTickets.reduce((acc, ticket) => acc + ticket.price, 0);
+      const ticketsSold = cinemaTickets.length;
+      const occupancy = cinemaCapacity > 0 ? (ticketsSold / cinemaCapacity) * 100 : 0;
 
       return {
+        cinemaId: cinema.id,
         name: cinema.name,
         city: cinema.city,
+        revenue,
+        tickets: ticketsSold,
         occupancy,
+        revenuePerSeat: cinemaCapacity > 0 ? revenue / cinemaCapacity : 0,
       };
     })
-    .sort((a, b) => b.occupancy - a.occupancy);
+    .sort((a, b) => b.revenue - a.revenue);
 
-  const ticketsByHour = Array.from({ length: 24 }).map((_, hour) => {
+  const revenuePerFilm = movies
+    .map((movie) => {
+      const movieTickets = filteredTickets.filter((ticket) => ticket.movieId === movie.id);
+      const revenue = movieTickets.reduce((acc, ticket) => acc + ticket.price, 0);
+      return { name: movie.title, revenue };
+    })
+    .filter((item) => item.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue);
+
+  const timeSlotPerformance = Array.from({ length: 24 }).map((_, hour) => {
     const label = `${hour.toString().padStart(2, "0")}:00`;
-    const count = filteredTickets.filter((ticket) => ticket.purchaseTime.getHours() === hour).length;
+    const slotScheduleIds = filteredSchedules
+      .filter((schedule) => schedule.scheduledTime.getHours() === hour)
+      .map((schedule) => schedule.id);
+    const slotTickets = filteredTickets.filter((ticket) => slotScheduleIds.includes(ticket.scheduleId));
+    const slotRevenue = slotTickets.reduce((acc, ticket) => acc + ticket.price, 0);
+    const slotCapacity = activeSchedulesOnly
+      .filter((schedule) => schedule.scheduledTime.getHours() === hour)
+      .reduce((acc, schedule) => acc + schedule.capacity, 0);
 
     return {
       hour: label,
-      tickets: count,
+      demand: slotTickets.length,
+      revenue: slotRevenue,
+      occupancy: slotCapacity > 0 ? (slotTickets.length / slotCapacity) * 100 : 0,
     };
   });
 
-  const peakHoursRanked = [...ticketsByHour].sort((a, b) => b.tickets - a.tickets);
+  const maxDemand = Math.max(...timeSlotPerformance.map((item) => item.demand), 0);
+  const minDemand = Math.min(...timeSlotPerformance.map((item) => item.demand), 0);
+  const maxRevenue = Math.max(...timeSlotPerformance.map((item) => item.revenue), 0);
+  const minRevenue = Math.min(...timeSlotPerformance.map((item) => item.revenue), 0);
+
+  const optimizationRows = timeSlotPerformance.map((item) => {
+    const normDemand =
+      maxDemand === minDemand ? 0 : (item.demand - minDemand) / (maxDemand - minDemand);
+    const normRevenue =
+      maxRevenue === minRevenue ? 0 : (item.revenue - minRevenue) / (maxRevenue - minRevenue);
+    const gap = normDemand - normRevenue;
+    const score = 0.6 * normDemand - 0.4 * normRevenue;
+
+    let recommendation = "Keep current setup";
+    if (normDemand > 0.7 && item.occupancy > 70) {
+      recommendation = "Increase price or add premium allocation";
+    } else if (normDemand > 0.7 && item.occupancy < 50) {
+      recommendation = "Fix scheduling and studio allocation";
+    } else if (normDemand < 0.3) {
+      recommendation = "Promote or reduce slot frequency";
+    }
+
+    return {
+      ...item,
+      normDemand,
+      normRevenue,
+      gap,
+      score,
+      recommendation,
+    };
+  });
+
+  const peakHoursRanked = [...timeSlotPerformance].sort((a, b) => b.revenue - a.revenue);
   const busiestHour = peakHoursRanked[0]?.hour ?? "-";
-  const quietestHour = peakHoursRanked[peakHoursRanked.length - 1]?.hour ?? "-";
+  const quietestHour = [...timeSlotPerformance].sort((a, b) => a.demand - b.demand)[0]?.hour ?? "-";
+  const bestTimeSlot = peakHoursRanked[0] ?? null;
+  const topOptimizationSlot = [...optimizationRows].sort((a, b) => b.score - a.score)[0] ?? null;
+
+  const heatmapHours = timeSlotPerformance
+    .filter((item) => item.demand > 0)
+    .map((item) => item.hour);
+  const heatmapDays = effectiveRange
+    ? Array.from({ length: dayCount }).map((_, index) => {
+        const current = new Date(effectiveRange.from);
+        current.setDate(effectiveRange.from.getDate() + index);
+        return {
+          key: format(current, "yyyy-MM-dd"),
+          label: format(current, "dd MMM"),
+        };
+      })
+    : [];
+
+  const demandHeatmap = heatmapHours.map((hourLabel) => {
+    const hour = Number(hourLabel.slice(0, 2));
+
+    return {
+      hour: hourLabel,
+      cells: heatmapDays.map((day) => {
+        const slotScheduleIds = filteredSchedules
+          .filter((schedule) => {
+            return (
+              schedule.scheduledTime.getHours() === hour &&
+              format(schedule.scheduledTime, "yyyy-MM-dd") === day.key
+            );
+          })
+          .map((schedule) => schedule.id);
+        const demand = filteredTickets.filter((ticket) => slotScheduleIds.includes(ticket.scheduleId)).length;
+
+        return {
+          label: day.label,
+          demand,
+        };
+      }),
+    };
+  });
+
+  const weekdayWeekend = filteredTickets.reduce(
+    (acc, ticket) => {
+      const schedule = filteredSchedules.find((item) => item.id === ticket.scheduleId);
+      if (!schedule) return acc;
+
+      const isWeekend = [0, 6].includes(schedule.scheduledTime.getDay());
+      if (isWeekend) {
+        acc.weekendRevenue += ticket.price;
+        acc.weekendTickets += 1;
+      } else {
+        acc.weekdayRevenue += ticket.price;
+        acc.weekdayTickets += 1;
+      }
+
+      return acc;
+    },
+    { weekdayRevenue: 0, weekendRevenue: 0, weekdayTickets: 0, weekendTickets: 0 }
+  );
+
+  const monthlyRevenueSeries = Object.entries(
+    filteredRevenueHistory.reduce<Record<string, number>>((acc, item) => {
+      const key = `${item.year}-${item.month.toString().padStart(2, "0")}`;
+      acc[key] = (acc[key] || 0) + item.revenue;
+      return acc;
+    }, {})
+  )
+    .map(([key, revenue]) => {
+      const [year, month] = key.split("-").map(Number);
+      return {
+        key,
+        label: format(new Date(year, month, 1), "MMM yy"),
+        revenue,
+        date: new Date(year, month, 1),
+      };
+    })
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const lastThreeRevenue = monthlyRevenueSeries.slice(-3).map((item) => item.revenue);
+  const forecastBase =
+    lastThreeRevenue.length > 0
+      ? lastThreeRevenue.reduce((acc, value) => acc + value, 0) / lastThreeRevenue.length
+      : 0;
+
+  const forecastRevenue = Math.round(forecastBase * 1.04);
+  const trendWithForecast = [
+    ...monthlyRevenueSeries.map((item) => ({
+      label: item.label,
+      actual: item.revenue,
+      forecast: null as number | null,
+    })),
+    {
+      label:
+        monthlyRevenueSeries.length > 0
+          ? format(
+              new Date(
+                monthlyRevenueSeries[monthlyRevenueSeries.length - 1].date.getFullYear(),
+                monthlyRevenueSeries[monthlyRevenueSeries.length - 1].date.getMonth() + 1,
+                1
+              ),
+              "MMM yy"
+            )
+          : "Next",
+      actual: null as number | null,
+      forecast: forecastRevenue,
+    },
+  ];
+
+  const paymentPreference = Object.entries(
+    filteredTickets.reduce<Record<string, number>>((acc, ticket) => {
+      acc[ticket.paymentType] = (acc[ticket.paymentType] || 0) + 1;
+      return acc;
+    }, {})
+  ).map(([paymentType, transactions]) => ({
+    paymentType,
+    transactions,
+    usagePct: totalTicketsSold > 0 ? (transactions / totalTicketsSold) * 100 : 0,
+  }));
+
+  const paymentProfitability = paymentPreference.map((item) => {
+    const config = paymentConfigs[item.paymentType as keyof typeof paymentConfigs];
+    const avgPrice = item.transactions > 0
+      ? filteredTickets
+          .filter((ticket) => ticket.paymentType === item.paymentType)
+          .reduce((acc, ticket) => acc + ticket.price, 0) / item.transactions
+      : 0;
+
+    return {
+      ...item,
+      avgPrice,
+      adminFee: config.adminFee,
+      successRate: config.successRate,
+      netProfitability: item.transactions * avgPrice * config.successRate - item.transactions * config.adminFee,
+    };
+  });
+
+  const pricingRecommendation = topOptimizationSlot
+    ? topOptimizationSlot.occupancy > 70 && topOptimizationSlot.demand >= Math.max(10, maxDemand * 0.7)
+      ? `Increase price around ${topOptimizationSlot.hour}; demand and occupancy are both strong.`
+      : topOptimizationSlot.occupancy < 50 && topOptimizationSlot.demand >= Math.max(10, maxDemand * 0.7)
+      ? `Fix scheduling around ${topOptimizationSlot.hour}; demand exists but seat fill is still weak.`
+      : `Keep pricing stable and use promos around ${quietestHour} to improve demand.`
+    : "No pricing recommendation for the current filter.";
 
   const cancelledShows = filteredSchedules.filter((schedule) => schedule.status === 'Cancelled').length;
   const delayedShows = filteredSchedules.filter((schedule) => schedule.status === 'Delayed').length;
@@ -542,26 +679,15 @@ export default function SalesAnalyticsPage() {
 
       <div className="h-px bg-border" />
 
-      {/* 3. Total Tickets Sold */}
       <section className="space-y-6">
         <header>
-          <h2 className="text-lg font-semibold">TOTAL TICKETS SOLD</h2>
+          <h2 className="text-lg font-semibold">SALES OVERVIEW</h2>
           <p className="text-sm text-muted-foreground">
-            Daily trend and summary of ticket sales in the selected period.
+            Revenue and ticket performance summary for the selected city, cinema, and period.
           </p>
         </header>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
-              <Ticket className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalTicketsSold}</div>
-            </CardContent>
-          </Card>
-
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
@@ -574,19 +700,41 @@ export default function SalesAnalyticsPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Daily Average</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
+              <Ticket className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{totalTicketsSold.toLocaleString("en-US")}</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Avg Ticket Price</CardTitle>
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{avgTicketsPerDay.toFixed(0)} tickets/day</div>
+              <div className="text-2xl font-bold">{formatCurrency(avgTicketPrice)}</div>
+              <p className="text-xs text-muted-foreground">{avgTicketsPerDay.toFixed(0)} tickets per day</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Revenue per Seat</CardTitle>
+              <Clock4 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(revenuePerSeat)}</div>
+              <p className="text-xs text-muted-foreground">Space utilization indicator</p>
             </CardContent>
           </Card>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Tickets Sold by Day</CardTitle>
-            <CardDescription>Daily ticket movement across the selected screening period.</CardDescription>
+            <CardTitle>Revenue and Tickets by Day</CardTitle>
+            <CardDescription>Daily movement of volume before drilling into time-slot optimization.</CardDescription>
           </CardHeader>
           <CardContent className="h-[280px]">
             {ticketsByDay.length > 0 ? (
@@ -621,7 +769,7 @@ export default function SalesAnalyticsPage() {
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground">No ticket sales data for this period.</p>
+                <p className="text-muted-foreground">No daily sales data for this period.</p>
               </div>
             )}
           </CardContent>
@@ -630,62 +778,281 @@ export default function SalesAnalyticsPage() {
 
       <div className="h-px bg-border" />
 
-      {/* 4. Annual Revenue */}
       <section className="space-y-6">
         <header>
-          <h2 className="text-lg font-semibold">ANNUAL REVENUE</h2>
+          <h2 className="text-lg font-semibold">REVENUE SOURCES</h2>
           <p className="text-sm text-muted-foreground">
-            Revenue view can be switched between yearly, quarterly, and monthly.
+            Break down revenue by cinema and movie before moving into time and pricing decisions.
           </p>
         </header>
 
-        <Card>
-          <CardHeader className="space-y-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <CardTitle>{revenueChartTitle}</CardTitle>
-                <CardDescription>
-                  Revenue history filtered by the selected city and cinema.
-                </CardDescription>
-              </div>
-
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                <Tabs
-                  value={revenueView}
-                  onValueChange={(value) => setRevenueView(value as "yearly" | "quarterly" | "monthly")}
-                  className="w-full md:w-auto"
-                >
-                  <TabsList>
-                    <TabsTrigger value="yearly">Yearly</TabsTrigger>
-                    <TabsTrigger value="quarterly">Quarterly</TabsTrigger>
-                    <TabsTrigger value="monthly">Monthly</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-
-                {revenueView !== "yearly" && (
-                  <div className="w-full md:w-40">
-                    <Select value={selectedRevenueYear} onValueChange={setSelectedRevenueYear}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Year" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableRevenueYears.map((year) => (
-                          <SelectItem key={year} value={year}>
-                            {year}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-5">
+          <div className="lg:col-span-3">
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue per Cinema</CardTitle>
+              </CardHeader>
+              <CardContent className="h-[340px]">
+                {revenuePerCinema.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={revenuePerCinema.slice(0, 7)} layout="vertical">
+                      <XAxis
+                        type="number"
+                        stroke="hsl(var(--muted-foreground))"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(value) => `Rp${Math.round(Number(value) / 1000000)}M`}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={160}
+                        stroke="hsl(var(--muted-foreground))"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "hsl(var(--card))",
+                          borderColor: "hsl(var(--border))",
+                        }}
+                        cursor={{ fill: "hsl(var(--secondary))" }}
+                        formatter={(value) => formatCurrency(Number(value))}
+                      />
+                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-muted-foreground">No cinema revenue data for this filter.</p>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="lg:col-span-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Revenue per Film</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {revenuePerFilm.slice(0, 6).map((film) => (
+                  <div key={film.name}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-medium">{film.name}</span>
+                      <span className="text-muted-foreground">{formatCurrency(film.revenue)}</span>
+                    </div>
+                    <Progress
+                      value={totalRevenue > 0 ? (film.revenue / totalRevenue) * 100 : 0}
+                      className="h-2 [&>div]:bg-green-500"
+                    />
+                  </div>
+                ))}
+                {revenuePerFilm.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No film revenue data found.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      <div className="h-px bg-border" />
+
+      <section className="space-y-6">
+        <header>
+          <h2 className="text-lg font-semibold">TIME & PRICING</h2>
+          <p className="text-sm text-muted-foreground">
+            Read demand by slot, compare it with revenue, then decide whether the issue is pricing or scheduling.
+          </p>
+        </header>
+
+        <div className="grid gap-6 md:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Best Time Slot</CardTitle>
+              <Clock4 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{bestTimeSlot?.hour ?? "-"}</div>
+              <p className="text-xs text-muted-foreground">
+                {bestTimeSlot ? formatCurrency(bestTimeSlot.revenue) : "No revenue yet"}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Quietest Hour</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{quietestHour}</div>
+              <p className="text-xs text-muted-foreground">Lowest demand across available slots</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pricing Recommendation</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-base font-semibold leading-snug">{pricingRecommendation}</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Seat Demand Heatmap</CardTitle>
+            <CardDescription>Demand concentration by show date and start time.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 overflow-x-auto">
+            {demandHeatmap.length > 0 ? (
+              <div className="min-w-[640px]">
+                <div className="grid grid-cols-[100px_repeat(6,minmax(0,1fr))] gap-2 text-xs text-muted-foreground">
+                  <div>Time</div>
+                  {heatmapDays.map((day) => (
+                    <div key={day.key}>{day.label}</div>
+                  ))}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {demandHeatmap.map((row) => (
+                    <div
+                      key={row.hour}
+                      className="grid grid-cols-[100px_repeat(6,minmax(0,1fr))] gap-2"
+                    >
+                      <div className="flex items-center text-sm font-medium">{row.hour}</div>
+                      {row.cells.map((cell) => (
+                        <div
+                          key={`${row.hour}-${cell.label}`}
+                          className="rounded-lg px-3 py-2 text-center text-sm"
+                          style={{
+                            backgroundColor:
+                              cell.demand === 0
+                                ? "hsl(var(--secondary))"
+                                : `hsl(var(--primary) / ${0.15 + cell.demand / Math.max(1, maxDemand) * 0.75})`,
+                          }}
+                        >
+                          {cell.demand}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex h-32 items-center justify-center">
+                <p className="text-muted-foreground">No slot demand data for this filter.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Time Slot Optimization Score</CardTitle>
+            <CardDescription>High score means demand is stronger than realized revenue.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Time Slot</TableHead>
+                  <TableHead className="text-right">Demand</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-right">Score</TableHead>
+                  <TableHead>Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {optimizationRows
+                  .filter((item) => item.demand > 0 || item.revenue > 0)
+                  .sort((a, b) => b.score - a.score)
+                  .slice(0, 6)
+                  .map((item) => (
+                    <TableRow key={item.hour}>
+                      <TableCell className="font-medium">{item.hour}</TableCell>
+                      <TableCell className="text-right">{item.demand}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(item.revenue)}</TableCell>
+                      <TableCell className="text-right">{item.score.toFixed(2)}</TableCell>
+                      <TableCell>{item.recommendation}</TableCell>
+                    </TableRow>
+                  ))}
+                {optimizationRows.every((item) => item.demand === 0 && item.revenue === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      No optimization signal available for this filter.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </section>
+
+      <div className="h-px bg-border" />
+
+      <section className="space-y-6">
+        <header>
+          <h2 className="text-lg font-semibold">PATTERN & FORECAST</h2>
+          <p className="text-sm text-muted-foreground">
+            Combine historical revenue pattern, weekday-weekend split, and simple forecasting before action.
+          </p>
+        </header>
+
+        <div className="grid gap-6 md:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Weekend Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(weekdayWeekend.weekendRevenue)}</div>
+              <p className="text-xs text-muted-foreground">{weekdayWeekend.weekendTickets} tickets on weekends</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Weekday Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(weekdayWeekend.weekdayRevenue)}</div>
+              <p className="text-xs text-muted-foreground">{weekdayWeekend.weekdayTickets} tickets on weekdays</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Next Forecast</CardTitle>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(forecastRevenue)}</div>
+              <p className="text-xs text-muted-foreground">Simple moving-average forecast</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue Trend & Forecast</CardTitle>
+            <CardDescription>
+              Revenue history filtered by the selected city and cinema.
+            </CardDescription>
           </CardHeader>
 
-          <CardContent className="h-[300px]">
-            {revenueChartData.length > 0 ? (
+          <CardContent className="h-[320px]">
+            {trendWithForecast.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={revenueChartData}>
+                <LineChart data={trendWithForecast}>
                   <XAxis
                     dataKey="label"
                     stroke="hsl(var(--muted-foreground))"
@@ -705,22 +1072,11 @@ export default function SalesAnalyticsPage() {
                       backgroundColor: "hsl(var(--card))",
                       borderColor: "hsl(var(--border))",
                     }}
-                    cursor={{ fill: 'hsl(var(--secondary))' }}
-                    formatter={(value) => formatCurrency(Number(value))}
+                    formatter={(value) => (value ? formatCurrency(Number(value)) : "-")}
                   />
-                  <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
-                    {revenueChartData.map((_, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={
-                          index === revenueChartData.length - 1
-                            ? "hsl(var(--primary))"
-                            : "hsl(var(--chart-5))"
-                        }
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
+                  <Line type="monotone" dataKey="actual" stroke="hsl(var(--primary))" strokeWidth={2} />
+                  <Line type="monotone" dataKey="forecast" stroke="hsl(var(--chart-3))" strokeDasharray="4 4" strokeWidth={2} />
+                </LineChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center">
@@ -733,212 +1089,102 @@ export default function SalesAnalyticsPage() {
 
       <div className="h-px bg-border" />
 
-      {/* 5. Revenue & Occupancy */}
       <section className="space-y-6">
         <header>
-          <h2 className="text-lg font-semibold">REVENUE & OCCUPANCY</h2>
+          <h2 className="text-lg font-semibold">PAYMENT & SPACE UTILIZATION</h2>
           <p className="text-sm text-muted-foreground">
-            Film revenue and cinema occupancy performance in the selected period.
+            Measure how customers pay, how much margin each method leaves, and whether seats are monetized efficiently.
           </p>
         </header>
 
-        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-5">
-          <div className="lg:col-span-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue per Film</CardTitle>
-              </CardHeader>
-              <CardContent className="h-[350px]">
-                {revenuePerFilm.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={revenuePerFilm.slice(0, 7)} layout="vertical">
-                      <XAxis
-                        type="number"
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={12}
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(value) => `Rp${Math.round(Number(value) / 1000000)}M`}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={12}
-                        tickLine={false}
-                        axisLine={false}
-                        width={140}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          borderColor: "hsl(var(--border))",
-                        }}
-                        cursor={{ fill: 'hsl(var(--secondary))' }}
-                        formatter={(value) => formatCurrency(Number(value))}
-                      />
-                      <Bar
-                        dataKey="revenue"
-                        fill="hsl(var(--primary))"
-                        radius={[0, 4, 4, 0]}
-                        barSize={20}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-muted-foreground">No film revenue data found.</p>
+        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Payment Preference</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {paymentPreference.map((item) => (
+                <div key={item.paymentType}>
+                  <div className="mb-1 flex items-center justify-between text-sm">
+                    <span className="font-medium">{item.paymentType}</span>
+                    <span className="text-muted-foreground">{item.usagePct.toFixed(1)}%</span>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                  <Progress value={item.usagePct} className="h-2 [&>div]:bg-green-500" />
+                </div>
+              ))}
+              {paymentPreference.length === 0 && (
+                <p className="text-sm text-muted-foreground">No payment preference data found.</p>
+              )}
+            </CardContent>
+          </Card>
 
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Occupancy per Cinema</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Cinema</TableHead>
-                      <TableHead className="text-right">Occupancy</TableHead>
+          <Card>
+            <CardHeader>
+              <CardTitle>Net Payment Profitability</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Method</TableHead>
+                    <TableHead className="text-right">Success</TableHead>
+                    <TableHead className="text-right">Admin Fee</TableHead>
+                    <TableHead className="text-right">Net</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paymentProfitability.map((item) => (
+                    <TableRow key={item.paymentType}>
+                      <TableCell className="font-medium">{item.paymentType}</TableCell>
+                      <TableCell className="text-right">{(item.successRate * 100).toFixed(0)}%</TableCell>
+                      <TableCell className="text-right">{formatCurrency(item.adminFee)}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(item.netProfitability)}</TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {occupancyPerCinema.map((cinema, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <div className="font-medium">{cinema.name}</div>
-                          <div className="text-sm text-muted-foreground">{cinema.city}</div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="w-12 text-right font-medium">
-                              {cinema.occupancy.toFixed(1)}%
-                            </span>
-                            <Progress
-                              value={cinema.occupancy}
-                              className={`h-2 w-20 [&>div]:bg-green-500 ${
-                                cinema.occupancy < 40
-                                  ? '[&>div]:bg-red-500'
-                                  : cinema.occupancy < 70
-                                  ? '[&>div]:bg-amber-500'
-                                  : ''
-                              }`}
-                            />
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {occupancyPerCinema.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={2} className="text-center text-muted-foreground">
-                          No cinema data available for this filter.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </div>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      {/* 6. Peak Hours */}
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">PEAK HOURS</h2>
-          <p className="text-sm text-muted-foreground">
-            Ticket sales distribution by purchase hour.
-          </p>
-        </header>
 
         <Card>
           <CardHeader>
-            <CardTitle>Tickets Sold by Hour</CardTitle>
+            <CardTitle>Space Utilization</CardTitle>
+            <CardDescription>Compare revenue per seat and occupancy to spot wasted capacity.</CardDescription>
           </CardHeader>
-          <CardContent className="h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={ticketsByHour}>
-                <XAxis
-                  dataKey="hour"
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    borderColor: "hsl(var(--border))"
-                  }}
-                  cursor={{ fill: 'hsl(var(--secondary))' }}
-                />
-                <Bar dataKey="tickets" radius={[4, 4, 0, 0]}>
-                  {ticketsByHour.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={
-                        peakHoursRanked.slice(0, 3).some((item) => item.hour === entry.hour)
-                          ? "hsl(var(--primary))"
-                          : "hsl(var(--chart-5))"
-                      }
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cinema</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-right">Revenue/Seat</TableHead>
+                  <TableHead className="text-right">Occupancy</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {revenuePerCinema.map((cinema) => (
+                  <TableRow key={cinema.cinemaId}>
+                    <TableCell>
+                      <div className="font-medium">{cinema.name}</div>
+                      <div className="text-sm text-muted-foreground">{cinema.city}</div>
+                    </TableCell>
+                    <TableCell className="text-right">{formatCurrency(cinema.revenue)}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(cinema.revenuePerSeat)}</TableCell>
+                    <TableCell className="text-right">{cinema.occupancy.toFixed(1)}%</TableCell>
+                  </TableRow>
+                ))}
+                {revenuePerCinema.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      No space utilization data for this filter.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Busiest Hour</CardTitle>
-              <Clock4 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{busiestHour}</div>
-              <p className="text-xs text-muted-foreground">Highest ticket volume</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Quietest Hour</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{quietestHour}</div>
-              <p className="text-xs text-muted-foreground">Lowest ticket volume</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Promotion Suggestion</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-base font-semibold">Promote around {quietestHour}</div>
-              <p className="text-xs text-muted-foreground">
-                Consider a targeted discount or flash offer to improve traffic.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
       </section>
 
       <div className="h-px bg-border" />
