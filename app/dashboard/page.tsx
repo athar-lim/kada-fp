@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DateRange } from "react-day-picker";
 import { format, startOfDay, endOfDay } from "date-fns";
 import {
@@ -56,6 +56,7 @@ import {
 } from "@/components/ui/select";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
+import { DashboardMetrics, getDashboardMetrics } from "@/lib/cinetrack-api";
 
 type NodeStatus = "ACTIVE" | "MAINTENANCE" | "OFFLINE";
 
@@ -378,10 +379,40 @@ export default function DashboardPage() {
   const [selectedCity, setSelectedCity] = useState("all");
   const [selectedCinema, setSelectedCinema] = useState("all");
   const [selectedFranchiseTab, setSelectedFranchiseTab] = useState("all");
+  const [apiMetrics, setApiMetrics] = useState<DashboardMetrics | null>(null);
+  const [apiMetricsError, setApiMetricsError] = useState(false);
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>({
     from: new Date(2026, 2, 24),
     to: new Date(2026, 2, 29),
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Effect ini mengambil ringkasan metrik live dari backend saat filter berubah.
+    // State lama dipertahankan sampai request baru selesai agar UI tetap stabil.
+    const loadMetrics = async () => {
+      try {
+        const metrics = await getDashboardMetrics({
+          cityId: selectedCity,
+          cinemaId: selectedCinema,
+        });
+
+        if (cancelled) return;
+        setApiMetrics(metrics);
+        setApiMetricsError(false);
+      } catch {
+        if (cancelled) return;
+        setApiMetricsError(true);
+      }
+    };
+
+    loadMetrics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCity, selectedCinema]);
 
   const visibleCinemaOptions = useMemo(() => {
     const filteredCinemas = cinemaNetwork.filter((cinema) => {
@@ -544,37 +575,75 @@ export default function DashboardPage() {
   const metricCardsData = [
     {
       title: "Total Tickets Sold",
-      value: totalTickets.toLocaleString("en-US"),
-      trend: calculateTrend(dailySummary.map((item) => item.tickets)),
-      subtitle: "Across the selected period",
-      chartData: dailySummary.map((item) => ({ name: item.name, value: item.tickets })),
+      value: (apiMetrics?.totalTickets ?? totalTickets).toLocaleString("en-US"),
+      trend: apiMetrics ? null : calculateTrend(dailySummary.map((item) => item.tickets)),
+      trendLabel: apiMetrics ? null : "vs start of period",
+      subtitle: apiMetrics
+        ? "Live API snapshot. Date filter is not supported yet."
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : "Across the selected period",
+      chartData:
+        apiMetrics?.ticketsChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.tickets })),
       stroke: "hsl(var(--chart-1))",
       icon: <Ticket className="h-4 w-4 text-muted-foreground" />,
     },
     {
       title: "Period Revenue",
-      value: formatCompactCurrency(totalRevenue),
-      trend: calculateTrend(dailySummary.map((item) => item.revenue)),
-      subtitle: "Gross ticket revenue",
-      chartData: dailySummary.map((item) => ({ name: item.name, value: item.revenue })),
+      value: formatCompactCurrency(apiMetrics?.totalRevenue ?? totalRevenue),
+      trend: apiMetrics ? null : calculateTrend(dailySummary.map((item) => item.revenue)),
+      trendLabel: apiMetrics ? null : "vs start of period",
+      subtitle: apiMetrics
+        ? "Gross ticket revenue from the live backend."
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : "Gross ticket revenue",
+      chartData:
+        apiMetrics?.revenueChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.revenue })),
       stroke: "hsl(var(--chart-2))",
       icon: <DollarSign className="h-4 w-4 text-muted-foreground" />,
     },
     {
       title: "Active Franchises",
-      value: `${activeFranchiseCount} / ${totalVisibleFranchise}`,
+      value: `${apiMetrics?.activeCinemas ?? activeFranchiseCount} / ${
+        apiMetrics?.totalCinemas ?? totalVisibleFranchise
+      }`,
       trend: null,
-      subtitle: `${maintenanceCount} under maintenance`,
-      chartData: dailySummary.map((item) => ({ name: item.name, value: item.active })),
+      trendLabel: null,
+      subtitle: apiMetrics
+        ? `${apiMetrics.inactiveCinemas} inactive in the current API filter`
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : `${maintenanceCount} under maintenance`,
+      chartData:
+        apiMetrics?.activeChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.active })),
       stroke: "hsl(var(--chart-3))",
       icon: <Building2 className="h-4 w-4 text-muted-foreground" />,
     },
     {
       title: "Average Occupancy",
-      value: `${avgOccupancy.toFixed(1)}%`,
-      trend: calculateTrend(dailySummary.map((item) => item.occupancy)),
-      subtitle: "Network-wide average",
-      chartData: dailySummary.map((item) => ({ name: item.name, value: item.occupancy })),
+      value:
+        apiMetrics && apiMetrics.averageOccupancy === null
+          ? "N/A"
+          : `${(apiMetrics?.averageOccupancy ?? avgOccupancy).toFixed(1)}%`,
+      trend:
+        apiMetrics && apiMetrics.averageOccupancy === null
+          ? null
+          : apiMetrics
+          ? null
+          : calculateTrend(dailySummary.map((item) => item.occupancy)),
+      trendLabel: apiMetrics ? null : "vs start of period",
+      subtitle: apiMetrics
+        ? "Occupancy is not exposed by the API yet."
+        : apiMetricsError
+        ? "API unavailable. Showing local fallback."
+        : "Network-wide average",
+      chartData:
+        apiMetrics?.occupancyChart ??
+        dailySummary.map((item) => ({ name: item.name, value: item.occupancy })),
       stroke: "hsl(var(--chart-4))",
       icon: <Percent className="h-4 w-4 text-muted-foreground" />,
     },
@@ -837,7 +906,7 @@ export default function DashboardPage() {
                       card.trend.startsWith("-") ? "rotate-180" : ""
                     }`}
                   />
-                  {card.trend} vs start of period
+                  {card.trend} {card.trendLabel}
                 </p>
               )}
 
