@@ -1,17 +1,45 @@
-'use client';
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { DateRange } from "react-day-picker";
-import { format, startOfDay, endOfDay } from "date-fns";
+import { format } from "date-fns";
+import {
+  Activity,
+  CalendarDays,
+  DollarSign,
+  Gauge,
+  MapPinned,
+  RefreshCw,
+  Ticket,
+} from "lucide-react";
+import {
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -20,34 +48,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  ResponsiveContainer,
-  Tooltip,
-  LineChart,
-  Line,
-  AreaChart,
-  Area,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
-import {
-  ArrowUp,
-  Ticket,
-  DollarSign,
-  Building2,
-  Percent,
-  ShieldAlert,
-  CircleCheck,
-  Info,
-  WifiOff,
-  Activity,
-  Clock3,
-  RefreshCw,
-} from "lucide-react";
+  getCinemaBreakdown,
+  getDashboardSummary,
+  getMovieStats,
+  getOccupancyStats,
+  getSystemHealth,
+  getTopMovies,
+  getTrendStats,
+  type CinemaBreakdownResponse,
+  type DashboardQuery,
+  type HealthResponse,
+  type MovieStatsResponse,
+  type OccupancyResponse,
+  type SummaryResponse,
+  type TopMovie,
+  type TrendsResponse,
+} from "@/lib/cinetrack-api";
 
-import {
+type DashboardPayload = {
+  summary: SummaryResponse | null;
+  cinemas: CinemaBreakdownResponse | null;
+  trends: TrendsResponse | null;
+  occupancy: OccupancyResponse | null;
+  movieStats: MovieStatsResponse | null;
+  topMovies: TopMovie[] | null;
+  health: HealthResponse | null;
+};
   Select,
   SelectContent,
   SelectItem,
@@ -58,185 +85,41 @@ import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
 import { DashboardMetrics, getDashboardMetrics } from "@/lib/cinetrack-api";
 
-type NodeStatus = "ACTIVE" | "MAINTENANCE" | "OFFLINE";
+type DashboardErrors = Partial<Record<keyof DashboardPayload, string>>;
 
-const cinemaNetwork = [
-  {
-    id: "C001",
-    name: "CGV West Jakarta",
-    cityId: "jakarta",
-    cityLabel: "Jakarta",
-    baseTickets: 1284,
-    baseOccupancy: 82,
-    avgPrice: 51000,
-    coordinates: [106.801, -6.176] as [number, number],
-  },
-  {
-    id: "C002",
-    name: "XXI Surabaya Plaza",
-    cityId: "surabaya",
-    cityLabel: "Surabaya",
-    baseTickets: 980,
-    baseOccupancy: 75,
-    avgPrice: 50000,
-    coordinates: [112.738, -7.257] as [number, number],
-  },
-  {
-    id: "C003",
-    name: "Cinemaxx Bandung",
-    cityId: "bandung",
-    cityLabel: "Bandung",
-    baseTickets: 870,
-    baseOccupancy: 70,
-    avgPrice: 48500,
-    coordinates: [107.619, -6.917] as [number, number],
-  },
-  {
-    id: "C004",
-    name: "XXI Medan Center",
-    cityId: "medan",
-    cityLabel: "Medan",
-    baseTickets: 760,
-    baseOccupancy: 67,
-    avgPrice: 47500,
-    coordinates: [98.672, 3.595] as [number, number],
-  },
-  {
-    id: "C005",
-    name: "CGV Semarang",
-    cityId: "semarang",
-    cityLabel: "Semarang",
-    baseTickets: 382,
-    baseOccupancy: 38,
-    avgPrice: 46000,
-    coordinates: [110.421, -6.991] as [number, number],
-  },
-  {
-    id: "C006",
-    name: "CGV Makassar",
-    cityId: "makassar",
-    cityLabel: "Makassar",
-    baseTickets: 540,
-    baseOccupancy: 61,
-    avgPrice: 47000,
-    coordinates: [119.432, -5.147] as [number, number],
-  },
-  {
-    id: "C007",
-    name: "XXI Balikpapan",
-    cityId: "balikpapan",
-    cityLabel: "Balikpapan",
-    baseTickets: 420,
-    baseOccupancy: 58,
-    avgPrice: 46500,
-    coordinates: [116.852, -1.265] as [number, number],
-  },
-  {
-    id: "C008",
-    name: "Cinemaxx Palembang",
-    cityId: "palembang",
-    cityLabel: "Palembang",
-    baseTickets: 0,
-    baseOccupancy: 0,
-    avgPrice: 0,
-    coordinates: [104.756, -2.991] as [number, number],
-  },
-];
-
-const cityOptions = [
-  { id: "all", name: "All Cities" },
-  ...cinemaNetwork
-    .map((item) => ({ id: item.cityId, name: item.cityLabel }))
-    .filter(
-      (value, index, array) =>
-        array.findIndex((item) => item.id === value.id) === index
-    ),
-];
-
-const dailyMultipliers = [0.82, 0.9, 0.96, 1.02, 1.1, 1.18];
-const javaCityIds = new Set(["jakarta", "surabaya", "bandung", "semarang"]);
-
-const filmCatalog = [
-  { title: "Dune: Part Three", baseWeight: 0.22, avgPrice: 52000 },
-  { title: "Nusantara Chronicles", baseWeight: 0.18, avgPrice: 50500 },
-  { title: "Avatar 3", baseWeight: 0.15, avgPrice: 53000 },
-  { title: "Grave Torture 2", baseWeight: 0.13, avgPrice: 49000 },
-  { title: "Iron Man: Legacy", baseWeight: 0.1, avgPrice: 50000 },
-  { title: "Moana 2", baseWeight: 0.09, avgPrice: 47000 },
-  { title: "Deadpool & Wolverine", baseWeight: 0.08, avgPrice: 53500 },
-  { title: "Inside Out 2", baseWeight: 0.05, avgPrice: 45500 },
-];
-
-const notificationsData = [
-  {
-    type: "WARNING",
-    title: "Low Occupancy — Semarang",
-    description: "CGV Semarang dropped below the 40% threshold.",
-    time: "01:42 WIB",
-    colorClass: "bg-amber-500",
-    read: false,
-    iconType: "warning",
-    cityId: "semarang",
-    cinemaId: "C005",
-    date: new Date(2026, 2, 28, 9, 0, 0, 0),
-  },
-  {
-    type: "ALERT",
-    title: "Node Offline — Palembang",
-    description: "CineTrack has not responded since 08:15 WIB.",
-    time: "06:17 WIB",
-    colorClass: "bg-red-500",
-    read: false,
-    iconType: "offline",
-    cityId: "palembang",
-    cinemaId: "C008",
-    date: new Date(2026, 2, 29, 8, 15, 0, 0),
-  },
-  {
-    type: "SUCCESS",
-    title: "New Record — West Jakarta",
-    description: "Highest single-day sales across the franchise network.",
-    time: "01:53 WIB",
-    colorClass: "bg-green-500",
-    read: false,
-    iconType: "success",
-    cityId: "jakarta",
-    cinemaId: "C001",
-    date: new Date(2026, 2, 29, 21, 0, 0, 0),
-  },
-  {
-    type: "INFO",
-    title: "Release Tomorrow — Nusantara Rising",
-    description: "High demand is projected; all studios are fully activated.",
-    time: "Yesterday 18:00",
-    colorClass: "bg-blue-500",
-    read: false,
-    iconType: "info",
-    cityId: "surabaya",
-    cinemaId: "C002",
-    date: new Date(2026, 2, 28, 18, 0, 0, 0),
-  },
-  {
-    type: "INFO",
-    title: "Monthly Report Ready",
-    description: "The February 2026 report has been generated and is ready to download.",
-    time: "00:35 WIB",
-    colorClass: "bg-blue-500",
-    read: true,
-    iconType: "info",
-    cityId: "jakarta",
-    cinemaId: "C001",
-    date: new Date(2026, 2, 27, 10, 0, 0, 0),
-  },
-];
-
-const seededRandom = (seed: number) => {
-  const x = Math.sin(seed * 9999.91) * 10000;
-  return x - Math.floor(x);
+type MultiCityOccupancyPoint = {
+  label: string;
+  [city: string]: number | string | undefined;
 };
 
+const cityCoordinates: Record<string, [number, number]> = {
+  Jakarta: [106.8456, -6.2088],
+  Bandung: [107.6191, -6.9175],
+  Surabaya: [112.7508, -7.2575],
+  Semarang: [110.421, -6.9667],
+  Medan: [98.6722, 3.5952],
+  Makassar: [119.4327, -5.1477],
+  Denpasar: [115.2167, -8.65],
+  Palembang: [104.7458, -2.9761],
+  Samarinda: [117.1458, -0.5022],
+  Jayapura: [140.7181, -2.5337],
+  Yogyakarta: [110.3695, -7.7956],
+  Pontianak: [109.3425, -0.0263],
+};
+
+const occupancyLineColors = [
+  "#ef4444",
+  "#2563eb",
+  "#16a34a",
+  "#f59e0b",
+  "#7c3aed",
+  "#0891b2",
+  "#db2777",
+  "#4f46e5",
+];
+
 const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
+  new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
@@ -249,135 +132,52 @@ const formatCompactCurrency = (value: number) => {
   return formatCurrency(value);
 };
 
-const calculateTrend = (values: number[]) => {
-  if (values.length < 2) return null;
-
-  const first = values[0];
-  const last = values[values.length - 1];
-
-  if (first === 0 && last === 0) return "0.0%";
-  if (first === 0) return "+100.0%";
-
-  const diff = ((last - first) / first) * 100;
-  const sign = diff >= 0 ? "+" : "";
-  return `${sign}${diff.toFixed(1)}%`;
+const formatGrowthLabel = (value: number) => {
+  const formatted = `${Math.abs(value).toFixed(2)}%`;
+  return value >= 0 ? `+${formatted}` : `-${formatted}`;
 };
 
-const isDateInRange = (
-  date: Date,
-  range: { from: Date; to: Date } | null
-) => {
-  if (!range) return true;
-  return date >= range.from && date <= range.to;
-};
+const formatQueryDate = (date: Date) => format(date, "yyyy-MM-dd");
 
-const getNotificationIcon = (type: string) => {
-  if (type === "warning") return <ShieldAlert className="h-5 w-5 text-amber-400" />;
-  if (type === "offline") return <WifiOff className="h-5 w-5 text-red-500" />;
-  if (type === "success") return <CircleCheck className="h-5 w-5 text-green-500" />;
-  return <Info className="h-5 w-5 text-blue-500" />;
-};
+function buildQuery(
+  selectedCity: string,
+  selectedCinema: string,
+  selectedDateRange: DateRange | undefined
+): DashboardQuery {
+  const query: DashboardQuery = {};
 
-const franchiseDailyData = cinemaNetwork.flatMap((cinema, cinemaIndex) => {
-  return dailyMultipliers.map((multiplier, dayIndex) => {
-    const date = new Date(2026, 2, 24 + dayIndex, 12, 0, 0, 0);
-    const seed = cinemaIndex * 100 + dayIndex;
-    const occupancyShift = Math.round((seededRandom(seed + 1) - 0.5) * 10);
-    const ticketShift = 0.92 + seededRandom(seed + 2) * 0.16;
+  if (selectedCity !== "all") {
+    query.city = selectedCity;
+  }
 
-    let status: NodeStatus = "ACTIVE";
+  if (selectedCinema !== "all") {
+    query.cinema_id = selectedCinema;
+  }
 
-    if (cinema.id === "C008") {
-      status = "OFFLINE";
-    } else if (cinema.id === "C007" && dayIndex === 2) {
-      status = "MAINTENANCE";
-    }
+  if (selectedDateRange?.from) {
+    query.start_date = formatQueryDate(selectedDateRange.from);
+    query.end_date = formatQueryDate(selectedDateRange.to ?? selectedDateRange.from);
+  }
 
-    const tickets =
-      status === "OFFLINE"
-        ? 0
-        : Math.round(cinema.baseTickets * multiplier * ticketShift);
+  return query;
+}
 
-    const occupancy =
-      status === "OFFLINE"
-        ? 0
-        : Math.max(
-            0,
-            Math.min(98, cinema.baseOccupancy + occupancyShift + dayIndex * 2)
-          );
-
-    const revenue = status === "OFFLINE" ? 0 : Math.round(tickets * cinema.avgPrice);
-
-    return {
-      cinemaId: cinema.id,
-      cinemaName: cinema.name,
-      cityId: cinema.cityId,
-      cityLabel: cinema.cityLabel,
-      coordinates: cinema.coordinates,
-      date,
-      tickets,
-      revenue,
-      occupancy,
-      status,
-    };
-  });
-});
-
-const filmPerformanceData = franchiseDailyData.flatMap((row, rowIndex) => {
-  if (row.status === "OFFLINE" || row.tickets === 0) return [];
-
-  const rawWeights = filmCatalog.map((film, filmIndex) => {
-    const modifier = 1 + (seededRandom(rowIndex * 10 + filmIndex) - 0.5) * 0.18;
-    return film.baseWeight * modifier;
-  });
-
-  const totalWeight = rawWeights.reduce((acc, value) => acc + value, 0);
-
-  return filmCatalog.map((film, filmIndex) => {
-    const allocatedTickets = Math.round(
-      (row.tickets * rawWeights[filmIndex]) / totalWeight
-    );
-
-    const dateTime = new Date(row.date);
-    dateTime.setHours(
-      10 + ((filmIndex * 2 + rowIndex) % 12),
-      filmIndex % 2 === 0 ? 15 : 45,
-      0,
-      0
-    );
-
-    return {
-      title: film.title,
-      cinemaId: row.cinemaId,
-      cinemaName: row.cinemaName,
-      cityId: row.cityId,
-      cityLabel: row.cityLabel,
-      date: row.date,
-      dateTime,
-      tickets: allocatedTickets,
-      revenue: allocatedTickets * film.avgPrice,
-    };
-  });
-});
-
-const transactionFeedData = filmPerformanceData
-  .filter((item) => item.tickets > 0)
-  .map((item, index) => ({
-    cityId: item.cityId,
-    cityLabel: item.cityLabel,
-    cinemaId: item.cinemaId,
-    cinemaName: item.cinemaName,
-    film: item.title,
-    tickets: Math.max(1, Math.min(4, Math.round(item.tickets / 120))),
-    time: format(item.dateTime, "HH:mm"),
-    date: item.date,
-    dateTime: item.dateTime,
-    sortKey: item.dateTime.getTime() + index,
-  }));
+function getErrorMessage(reason: unknown, fallback: string) {
+  return reason instanceof Error ? reason.message : fallback;
+}
 
 export default function DashboardPage() {
   const [selectedCity, setSelectedCity] = useState("all");
   const [selectedCinema, setSelectedCinema] = useState("all");
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>();
+  const [data, setData] = useState<DashboardPayload>({
+    summary: null,
+    cinemas: null,
+    trends: null,
+    occupancy: null,
+    movieStats: null,
+    topMovies: null,
+    health: null,
   const [selectedFranchiseTab, setSelectedFranchiseTab] = useState("all");
   const [apiMetrics, setApiMetrics] = useState<DashboardMetrics | null>(null);
   const [apiMetricsError, setApiMetricsError] = useState(false);
@@ -385,10 +185,44 @@ export default function DashboardPage() {
     from: new Date(2026, 2, 24),
     to: new Date(2026, 2, 29),
   });
+  const [errors, setErrors] = useState<DashboardErrors>({});
+  const [loading, setLoading] = useState(true);
+  const [multiCityOccupancyData, setMultiCityOccupancyData] = useState<MultiCityOccupancyPoint[]>([]);
+  const [multiCityOccupancyKeys, setMultiCityOccupancyKeys] = useState<string[]>([]);
+
+  const query = useMemo(
+    () => buildQuery(selectedCity, selectedCinema, selectedDateRange),
+    [selectedCity, selectedCinema, selectedDateRange]
+  );
 
   useEffect(() => {
     let cancelled = false;
 
+    const loadDashboard = async () => {
+      setLoading(true);
+      setErrors({});
+
+      const results = await Promise.allSettled([
+        getDashboardSummary(query),
+        getCinemaBreakdown(query),
+        getTrendStats(query),
+        getOccupancyStats(query),
+        getMovieStats(query),
+        getTopMovies(query),
+        getSystemHealth(),
+      ]);
+
+      if (cancelled) return;
+
+      setData({
+        summary: results[0].status === "fulfilled" ? results[0].value : null,
+        cinemas: results[1].status === "fulfilled" ? results[1].value : null,
+        trends: results[2].status === "fulfilled" ? results[2].value : null,
+        occupancy: results[3].status === "fulfilled" ? results[3].value : null,
+        movieStats: results[4].status === "fulfilled" ? results[4].value : null,
+        topMovies: results[5].status === "fulfilled" ? results[5].value : null,
+        health: results[6].status === "fulfilled" ? results[6].value : null,
+      });
     // Effect ini mengambil ringkasan metrik live dari backend saat filter berubah.
     // State lama dipertahankan sampai request baru selesai agar UI tetap stabil.
     const loadMetrics = async () => {
@@ -429,132 +263,51 @@ export default function DashboardPage() {
     ];
   }, [selectedCity]);
 
-  const appliedRange = useMemo(() => {
-    if (!selectedDateRange?.from) return null;
-
-    return {
-      from: startOfDay(selectedDateRange.from),
-      to: endOfDay(selectedDateRange.to ?? selectedDateRange.from),
-    };
-  }, [selectedDateRange]);
-
-  const filteredFranchiseRows = useMemo(() => {
-    return franchiseDailyData.filter((row) => {
-      const matchCity = selectedCity === "all" ? true : row.cityId === selectedCity;
-      const matchCinema = selectedCinema === "all" ? true : row.cinemaId === selectedCinema;
-
-      return matchCity && matchCinema && isDateInRange(row.date, appliedRange);
-    });
-  }, [selectedCity, selectedCinema, appliedRange]);
-
-  const filteredFilmRows = useMemo(() => {
-    return filmPerformanceData.filter((row) => {
-      const matchCity = selectedCity === "all" ? true : row.cityId === selectedCity;
-      const matchCinema = selectedCinema === "all" ? true : row.cinemaId === selectedCinema;
-
-      return matchCity && matchCinema && isDateInRange(row.date, appliedRange);
-    });
-  }, [selectedCity, selectedCinema, appliedRange]);
-
-  const filteredTransactionFeed = useMemo(() => {
-    return transactionFeedData
-      .filter((row) => {
-        const matchCity = selectedCity === "all" ? true : row.cityId === selectedCity;
-        const matchCinema = selectedCinema === "all" ? true : row.cinemaId === selectedCinema;
-
-        return matchCity && matchCinema && isDateInRange(row.date, appliedRange);
-      })
-      .sort((a, b) => b.sortKey - a.sortKey);
-  }, [selectedCity, selectedCinema, appliedRange]);
-
-  const filteredNotifications = useMemo(() => {
-    return notificationsData.filter((row) => {
-      const matchCity = selectedCity === "all" ? true : row.cityId === selectedCity;
-      const matchCinema = selectedCinema === "all" ? true : row.cinemaId === selectedCinema;
-
-      return matchCity && matchCinema && isDateInRange(row.date, appliedRange);
-    });
-  }, [selectedCity, selectedCinema, appliedRange]);
-
-  const periodLabel = selectedDateRange?.from
-    ? `${format(selectedDateRange.from, "MMM dd, yyyy")} - ${format(
-        selectedDateRange.to ?? selectedDateRange.from,
-        "MMM dd, yyyy"
-      )}`
-    : "All Time";
-
-  const effectiveRange = useMemo(() => {
-    if (appliedRange) return appliedRange;
-    if (filteredFranchiseRows.length === 0) return null;
-
-    const sorted = [...filteredFranchiseRows].sort(
-      (a, b) => a.date.getTime() - b.date.getTime()
-    );
-
-    return {
-      from: startOfDay(sorted[0].date),
-      to: endOfDay(sorted[sorted.length - 1].date),
-    };
-  }, [appliedRange, filteredFranchiseRows]);
-
-  const dailySummary = useMemo(() => {
-    if (!effectiveRange) return [];
-
-    const dayCount =
-      Math.max(
-        1,
-        Math.floor(
-          (effectiveRange.to.getTime() - effectiveRange.from.getTime()) /
-            (1000 * 60 * 60 * 24)
-        ) + 1
-      );
-
-    return Array.from({ length: dayCount }).map((_, index) => {
-      const current = new Date(effectiveRange.from);
-      current.setDate(effectiveRange.from.getDate() + index);
-
-      const rows = filteredFranchiseRows.filter((row) => {
-        return (
-          row.date.getFullYear() === current.getFullYear() &&
-          row.date.getMonth() === current.getMonth() &&
-          row.date.getDate() === current.getDate()
-        );
+      setErrors({
+        summary:
+          results[0].status === "rejected"
+            ? getErrorMessage(results[0].reason, "Failed to load summary.")
+            : undefined,
+        cinemas:
+          results[1].status === "rejected"
+            ? getErrorMessage(results[1].reason, "Failed to load cinemas.")
+            : undefined,
+        trends:
+          results[2].status === "rejected"
+            ? getErrorMessage(results[2].reason, "Failed to load trends.")
+            : undefined,
+        occupancy:
+          results[3].status === "rejected"
+            ? getErrorMessage(results[3].reason, "Failed to load occupancy.")
+            : undefined,
+        movieStats:
+          results[4].status === "rejected"
+            ? getErrorMessage(results[4].reason, "Failed to load movie stats.")
+            : undefined,
+        topMovies:
+          results[5].status === "rejected"
+            ? getErrorMessage(results[5].reason, "Failed to load top movies.")
+            : undefined,
+        health:
+          results[6].status === "rejected"
+            ? getErrorMessage(results[6].reason, "Failed to load system health.")
+            : undefined,
       });
 
-      const activeCount = new Set(
-        rows.filter((row) => row.status === "ACTIVE").map((row) => row.cinemaId)
-      ).size;
+      setLoading(false);
+    };
 
-      const occupancy =
-        rows.length > 0
-          ? rows.reduce((acc, row) => acc + row.occupancy, 0) / rows.length
-          : 0;
+    loadDashboard();
 
-      return {
-        name: format(current, "MMM dd"),
-        tickets: rows.reduce((acc, row) => acc + row.tickets, 0),
-        revenue: rows.reduce((acc, row) => acc + row.revenue, 0),
-        active: activeCount,
-        occupancy: Number(occupancy.toFixed(1)),
-      };
-    });
-  }, [filteredFranchiseRows, effectiveRange]);
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
 
-  const totalTickets = filteredFranchiseRows.reduce((acc, row) => acc + row.tickets, 0);
-  const totalRevenue = filteredFranchiseRows.reduce((acc, row) => acc + row.revenue, 0);
+  const cityOptions = useMemo(() => {
+    if (!data.cinemas) return [{ id: "all", name: "All City" }];
 
-  const latestByCinema = Object.values(
-    filteredFranchiseRows.reduce<Record<string, (typeof filteredFranchiseRows)[number]>>(
-      (acc, row) => {
-        if (!acc[row.cinemaId] || acc[row.cinemaId].date < row.date) {
-          acc[row.cinemaId] = row;
-        }
-        return acc;
-      },
-      {}
-    )
-  );
-
+    const uniqueCities = [...new Set(data.cinemas.breakdown.map((item) => item.city))].sort();
   const activeFranchiseCount = latestByCinema.filter(
     (row) => row.status === "ACTIVE"
   ).length;
@@ -687,69 +440,33 @@ export default function DashboardPage() {
         };
       }
 
-      acc[row.cinemaId].tickets += row.tickets;
-      acc[row.cinemaId].occupancySum += row.occupancy;
-      acc[row.cinemaId].count += 1;
-      acc[row.cinemaId].status = row.status;
+    return [
+      { id: "all", name: "All City" },
+      ...uniqueCities.map((city) => ({ id: city, name: city })),
+    ];
+  }, [data.cinemas]);
 
-      return acc;
-    }, {})
-  )
-    .map((item) => ({
-      ...item,
-      occupancy: item.count > 0 ? Math.round(item.occupancySum / item.count) : 0,
-    }))
-    .sort((a, b) => b.tickets - a.tickets);
+  const cinemaOptions = useMemo(() => {
+    if (!data.cinemas) return [{ id: "all", name: "All Franchise" }];
 
-  const visibleFranchiseSummary = useMemo(() => {
-    if (selectedFranchiseTab === "active") {
-      return franchiseSummary.filter((item) => item.status === "ACTIVE");
-    }
+    const filtered = data.cinemas.breakdown.filter((item) => {
+      if (selectedCity === "all") return true;
+      return item.city === selectedCity;
+    });
 
-    if (selectedFranchiseTab === "java") {
-      return franchiseSummary.filter((item) => javaCityIds.has(item.cityId));
-    }
+    return [
+      { id: "all", name: "All Franchise" },
+      ...filtered.map((item) => ({
+        id: item.cinema_id,
+        name: item.cinema_name,
+      })),
+    ];
+  }, [data.cinemas, selectedCity]);
 
-    return franchiseSummary;
-  }, [franchiseSummary, selectedFranchiseTab]);
+  const mapSummary = useMemo(() => {
+    if (!data.cinemas) return [];
 
-  const topFilmsData = Object.values(
-    filteredFilmRows.reduce<
-      Record<
-        string,
-        {
-          title: string;
-          tickets: number;
-          revenue: number;
-        }
-      >
-    >((acc, row) => {
-      if (!acc[row.title]) {
-        acc[row.title] = {
-          title: row.title,
-          tickets: 0,
-          revenue: 0,
-        };
-      }
-
-      acc[row.title].tickets += row.tickets;
-      acc[row.title].revenue += row.revenue;
-      return acc;
-    }, {})
-  )
-    .sort((a, b) => b.tickets - a.tickets)
-    .slice(0, 5);
-
-  const topFilmColors = [
-    "bg-yellow-400",
-    "bg-slate-400",
-    "bg-amber-600",
-    "bg-primary",
-    "bg-primary/70",
-  ];
-
-  const mapSummary = Object.values(
-    latestByCinema.reduce<
+    const grouped = data.cinemas.breakdown.reduce<
       Record<
         string,
         {
@@ -757,88 +474,154 @@ export default function DashboardPage() {
           totalNodes: number;
           activeNodes: number;
           nonActiveNodes: number;
-          coordinates: [number, number];
-          occupancySum: number;
+          occupancy: number;
           occupancyCount: number;
+          coordinates: [number, number];
         }
       >
-    >((acc, row) => {
-      if (!acc[row.cityId]) {
-        acc[row.cityId] = {
-          name: row.cityLabel,
+    >((acc, cinema) => {
+      const coordinates = cityCoordinates[cinema.city] ?? [106.8456, -6.2088];
+
+      if (!acc[cinema.city]) {
+        acc[cinema.city] = {
+          name: cinema.city,
           totalNodes: 0,
           activeNodes: 0,
           nonActiveNodes: 0,
-          coordinates: row.coordinates,
-          occupancySum: 0,
+          occupancy: 0,
           occupancyCount: 0,
+          coordinates,
         };
       }
 
-      acc[row.cityId].totalNodes += 1;
-      if (row.status === "ACTIVE") {
-        acc[row.cityId].activeNodes += 1;
-      } else {
-        acc[row.cityId].nonActiveNodes += 1;
-      }
-
-      acc[row.cityId].occupancySum += row.occupancy;
-      acc[row.cityId].occupancyCount += 1;
+      acc[cinema.city].totalNodes += 1;
+      acc[cinema.city].activeNodes += 1;
+      acc[cinema.city].occupancy += data.summary?.data.occupancy ?? 0;
+      acc[cinema.city].occupancyCount += 1;
 
       return acc;
-    }, {})
-  ).map((item) => ({
-    ...item,
-    occupancy:
-      item.occupancyCount > 0 ? item.occupancySum / item.occupancyCount : 0,
-  }));
+    }, {});
 
-  const notificationActiveCount = filteredNotifications.filter(
-    (item) => !item.read
-  ).length;
+    return Object.values(grouped).map((item) => ({
+      name: item.name,
+      totalNodes: item.totalNodes,
+      activeNodes: item.activeNodes,
+      nonActiveNodes: item.nonActiveNodes,
+      coordinates: item.coordinates,
+      occupancy: item.occupancyCount > 0 ? item.occupancy / item.occupancyCount : 0,
+    }));
+  }, [data.cinemas, data.summary]);
 
-  const pieData = topFilmsData.map((item) => ({
-    name: item.title,
-    value: item.tickets,
-  }));
+  const occupancyChartData = useMemo(() => {
+    if (selectedCity === "all" && selectedCinema === "all" && multiCityOccupancyData.length > 0) {
+      return multiCityOccupancyData;
+    }
+    if (!data.occupancy) return [];
 
-  const latestTransactionTime = filteredTransactionFeed[0]?.dateTime ?? null;
+    return data.occupancy.breakdown.map((item) => ({
+      label: item.time_group.split(" ").at(-1) ?? item.time_group,
+      occupancy: Number(item.avg_occupancy.toFixed(2)),
+    }));
+  }, [data.occupancy, multiCityOccupancyData, selectedCity, selectedCinema]);
 
-  const transactionsInLastHour = latestTransactionTime
-    ? filteredTransactionFeed.filter(
-        (row) =>
-          latestTransactionTime.getTime() - row.dateTime.getTime() <= 60 * 60 * 1000
-      )
-    : [];
+  useEffect(() => {
+    let cancelled = false;
 
-  const lastSystemUpdate = (() => {
-    const timestamps = [
-      ...filteredFranchiseRows.map((item) => item.date.getTime()),
-      ...filteredNotifications.map((item) => item.date.getTime()),
-      ...filteredTransactionFeed.map((item) => item.dateTime.getTime()),
-    ];
+    const loadMultiCityOccupancy = async () => {
+      if (!data.cinemas || selectedCity !== "all" || selectedCinema !== "all") {
+        setMultiCityOccupancyData([]);
+        setMultiCityOccupancyKeys([]);
+        return;
+      }
 
-    if (timestamps.length === 0) return null;
-    return new Date(Math.max(...timestamps));
-  })();
+      const uniqueCities = [...new Set(data.cinemas.breakdown.map((item) => item.city))].sort();
 
-  const networkHealthLabel =
-    activeFranchiseCount === 0
-      ? "Down"
-      : nonActiveFranchiseCount > 0
-      ? "Degraded"
-      : "Healthy";
+      if (uniqueCities.length === 0) {
+        setMultiCityOccupancyData([]);
+        setMultiCityOccupancyKeys([]);
+        return;
+      }
+
+      const occupancyResults = await Promise.allSettled(
+        uniqueCities.map((city) =>
+          getOccupancyStats({
+            city,
+            start_date: query.start_date,
+            end_date: query.end_date,
+          })
+        )
+      );
+
+      if (cancelled) return;
+
+      const merged = new Map<string, MultiCityOccupancyPoint>();
+      const successfulCities: string[] = [];
+
+      occupancyResults.forEach((result, index) => {
+        if (result.status !== "fulfilled") return;
+
+        const city = uniqueCities[index];
+        successfulCities.push(city);
+
+        result.value.breakdown.forEach((item) => {
+          const label = item.time_group.split(" ").at(-1) ?? item.time_group;
+          const existing = merged.get(label) ?? { label };
+          existing[city] = Number(item.avg_occupancy.toFixed(2));
+          merged.set(label, existing);
+        });
+      });
+
+      setMultiCityOccupancyKeys(successfulCities);
+      setMultiCityOccupancyData(Array.from(merged.values()));
+    };
+
+    loadMultiCityOccupancy();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data.cinemas, query.end_date, query.start_date, selectedCity, selectedCinema]);
+
+  const formatPeriod = (periodString) => {
+    if (!periodString) return "";
+
+    const [startDate, endDate] = periodString.split(" to ");
+
+    const opt: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short", year: "numeric" };
+
+    const start = new Date(startDate).toLocaleDateString('id-ID', opt);
+    const end = new Date(endDate).toLocaleDateString('id-ID', opt);
+
+    return `${start} - ${end}`;
+  };
+
+  const periodLabel = selectedDateRange?.from
+    ? `${format(selectedDateRange.from, "d MMM yyyy")} - ${format(
+      selectedDateRange.to ?? selectedDateRange.from,
+      "d MMM yyyy"
+    )}`
+    : data.summary?.meta.period ?? "Semua tanggal";
+
+  const topMovies = data.topMovies?.slice(0, 10) ?? [];
+  const hasAnyError = Object.values(errors).some(Boolean);
+  const ticketGrowth = data.summary?.data.growth?.tickets;
+  const revenueGrowth = data.summary?.data.growth?.revenue;
+  const avgOccupancyGrowth = data.summary?.data.growth?.avg_occupancy;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard Analytics</h1>
-          <p className="text-muted-foreground">Period: {periodLabel}</p>
+          <h1 className="text-2xl font-bold text-foreground">Cinema Operations Dashboard</h1>
+          <p className="text-sm text-muted-foreground">
+            Overview of your cinema operations.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {loading ? "--" : `Data from ${formatPeriod(data.summary?.meta.period)}`}
+          </p>
         </div>
-
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="w-full md:w-52">
+        <div className="w-50%">
+          <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
             <Select
               value={selectedCity}
               onValueChange={(value) => {
@@ -846,8 +629,8 @@ export default function DashboardPage() {
                 setSelectedCinema("all");
               }}
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Select city" />
+              <SelectTrigger className="h-15 w-full min-w-0">
+                <SelectValue placeholder="Select City" />
               </SelectTrigger>
               <SelectContent>
                 {cityOptions.map((city) => (
@@ -857,445 +640,339 @@ export default function DashboardPage() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
 
-          <div className="w-full md:w-64">
             <Select value={selectedCinema} onValueChange={setSelectedCinema}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select cinema" />
+              <SelectTrigger className="h-15 w-full min-w-0">
+                <SelectValue placeholder="Select Franchise" />
               </SelectTrigger>
               <SelectContent>
-                {visibleCinemaOptions.map((cinema) => (
+                {cinemaOptions.map((cinema) => (
                   <SelectItem key={cinema.id} value={cinema.id}>
                     {cinema.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
 
-          <div className="w-full md:w-auto">
             <DateRangeFilter
               value={selectedDateRange}
               onApply={setSelectedDateRange}
-              triggerLabel="Select period"
+              triggerLabel="Select Period"
             />
           </div>
         </div>
       </div>
+      <hr></hr>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {metricCardsData.map((card, index) => (
-          <Card key={index}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-              {card.icon}
-            </CardHeader>
+      {hasAnyError && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="space-y-1 py-4 text-sm text-amber-700">
+            <p>Beberapa data dashboard belum bisa dimuat dari API saat ini.</p>
+            {errors.summary && <p>Summary: {errors.summary}</p>}
+            {errors.cinemas && <p>Cinemas: {errors.cinemas}</p>}
+            {errors.movieStats && <p>Movie stats: {errors.movieStats}</p>}
+            {errors.topMovies && <p>Top movies: {errors.topMovies}</p>}
+            {errors.occupancy && <p>Occupancy: {errors.occupancy}</p>}
+            {errors.health && <p>System health: {errors.health}</p>}
+          </CardContent>
+        </Card>
+      )}
 
-            <CardContent>
-              <div className="text-2xl font-bold">{card.value}</div>
-
-              {card.trend && (
-                <p
-                  className={`flex items-center text-xs ${
-                    card.trend.startsWith("-") ? "text-red-400" : "text-green-400"
-                  }`}
-                >
-                  <ArrowUp
-                    className={`mr-1 h-3 w-3 ${
-                      card.trend.startsWith("-") ? "rotate-180" : ""
-                    }`}
-                  />
-                  {card.trend} {card.trendLabel}
-                </p>
-              )}
-
-              {card.subtitle && (
-                <p className="text-xs text-muted-foreground">{card.subtitle}</p>
-              )}
-
-              <div className="mt-4 h-[40px] min-w-0 -ml-6">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={card.chartData}>
-                    <Line
-                      type="monotone"
-                      dataKey="value"
-                      stroke={card.stroke}
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div>
-        <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold">
-          Notifications & Alerts
-          <Badge className="border-red-500/30 bg-red-500/20 text-red-400">
-            {notificationActiveCount} Active
-          </Badge>
-        </h2>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-          {filteredNotifications.length > 0 ? (
-            filteredNotifications.map((item, index) => (
-              <Card
-                key={index}
-                className={`relative overflow-hidden ${item.read ? "opacity-60" : ""}`}
-              >
-                <div
-                  className={`absolute left-0 top-0 bottom-0 w-1 ${item.colorClass}`}
-                />
-                <CardHeader className="pl-6">
-                  <div className="flex items-start gap-3">
-                    {getNotificationIcon(item.iconType)}
-                    <div>
-                      <CardTitle className="text-base">{item.title}</CardTitle>
-                      <p className="text-sm text-muted-foreground">{item.description}</p>
-                    </div>
-                    {!item.read && (
-                      <div className="absolute top-3 right-3 h-2 w-2 rounded-full bg-green-400" />
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="pl-6 pb-4">
-                  <p className="text-xs text-muted-foreground">{item.time}</p>
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <Card className="xl:col-span-5">
-              <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                No notifications found for this filter.
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
-
-      <IndonesiaFranchiseMap citySummary={mapSummary} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <div className="min-w-0 lg:col-span-3">
-          <Card>
-            <CardHeader>
-              <CardTitle>Franchise Network</CardTitle>
-
-              <Tabs
-                value={selectedFranchiseTab}
-                onValueChange={setSelectedFranchiseTab}
-                className="w-full pt-2"
-              >
-                <TabsList>
-                  <TabsTrigger value="all">All</TabsTrigger>
-                  <TabsTrigger value="active">Active</TabsTrigger>
-                  <TabsTrigger value="java">Java</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </CardHeader>
-
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Franchise</TableHead>
-                    <TableHead className="text-right">Tickets</TableHead>
-                    <TableHead>Occupancy</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-
-                <TableBody>
-                  {visibleFranchiseSummary.length > 0 ? (
-                    visibleFranchiseSummary.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <div className="font-medium">{item.name}</div>
-                          <div className="text-sm text-muted-foreground">{item.city}</div>
-                        </TableCell>
-
-                        <TableCell className="text-right font-mono">
-                          {item.tickets.toLocaleString("en-US")}
-                        </TableCell>
-
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <span className="w-10 text-right font-medium">
-                              {item.occupancy}%
-                            </span>
-                            <Progress
-                              value={item.occupancy}
-                              className={`h-2 [&>div]:bg-green-500 ${
-                                item.occupancy < 40
-                                  ? "[&>div]:bg-red-500"
-                                  : item.occupancy < 70
-                                  ? "[&>div]:bg-amber-500"
-                                  : ""
-                              }`}
-                            />
-                          </div>
-                        </TableCell>
-
-                        <TableCell>
-                          <Badge
-                            className={`${
-                              item.status === "ACTIVE"
-                                ? "border-green-500/30 bg-green-500/20 text-green-400"
-                                : item.status === "MAINTENANCE"
-                                ? "border-amber-500/30 bg-amber-500/20 text-amber-400"
-                                : "border-red-500/30 bg-red-500/20 text-red-400"
-                            }`}
-                          >
-                            {item.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={4}
-                        className="text-center text-muted-foreground"
-                      >
-                        No franchise data found for this filter.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="min-w-0 space-y-6 lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Top Films</span>
-                <Badge className="border-border bg-transparent text-foreground">
-                  This Period
-                </Badge>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">
+                Total Tickets Sold
               </CardTitle>
-            </CardHeader>
+              <Ticket className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {data.summary ? data.summary.data.total_tickets.toLocaleString("id-ID") : "--"}
+            </div>
+            <p
+              className={
+                loading || ticketGrowth === undefined
+                  ? "text-xs text-muted-foreground"
+                  : ticketGrowth < 0
+                    ? "text-xs text-red-600"
+                    : "text-xs text-green-600"
+              }
+            >
+              {loading
+                ? "Loading..."
+                : ticketGrowth === undefined
+                  ? "undefined"
+                  : `${formatGrowthLabel(ticketGrowth)} vs previous period`}
+            </p>
+          </CardContent>
+        </Card>
 
-            <CardContent className="space-y-4">
-              {topFilmsData.length > 0 ? (
-                topFilmsData.map((film, index) => (
-                  <div key={film.title}>
-                    <div className="mb-1 flex justify-between text-sm">
-                      <span className="font-semibold">
-                        {index + 1}. {film.title}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {formatCompactCurrency(film.revenue)}
-                      </span>
-                    </div>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">
+                Total Revenue
+              </CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {data.summary ? formatCompactCurrency(data.summary.data.revenue) : "--"}
+            </div>
+            <p
+              className={
+                loading || revenueGrowth === undefined
+                  ? "text-xs text-muted-foreground"
+                  : revenueGrowth < 0
+                    ? "text-xs text-red-600"
+                    : "text-xs text-green-600"
+              }
+            >
+              {loading
+                ? "Loading..."
+                : revenueGrowth === undefined
+                  ? "undefined"
+                  : `${formatGrowthLabel(revenueGrowth)} vs previous period`}
+            </p>
+          </CardContent>
+        </Card>
 
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`h-1.5 grow rounded-full ${
-                          topFilmColors[index] ?? "bg-primary/70"
-                        }`}
-                      />
-                      <span className="w-24 text-right font-mono text-xs text-muted-foreground">
-                        {film.tickets.toLocaleString("en-US")} tickets
-                      </span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No film performance data for this filter.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">
+                Active Franchise
+              </CardTitle>
+              <MapPinned className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {data.summary
+                ? `${data.summary.data.cinema_aktif} / ${data.summary.data.cinema_tersedia}`
+                : "--"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {loading ? "Loading..." : "Cabang aktif dari total cabang tersedia"}
+            </p>
+          </CardContent>
+        </Card>
 
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">
+                Average Occupancy
+              </CardTitle>
+              <Gauge className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {data.summary ? `${data.summary.data.occupancy.toFixed(1)}%` : "--"}
+            </div>
+            <p
+              className={
+                loading || avgOccupancyGrowth === undefined
+                  ? "text-xs text-muted-foreground"
+                  : avgOccupancyGrowth < 0
+                    ? "text-xs text-red-600"
+                    : "text-xs text-green-600"
+              }
+            >
+              {loading
+                ? "Loading..."
+                : avgOccupancyGrowth === undefined
+                  ? "undefined"
+                  : `${formatGrowthLabel(avgOccupancyGrowth)} vs previous period`}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="flex items-center justify-between py-6 px-8">
+          <div className="flex w-full items-center justify-between gap-4">
+            <CardTitle>Insight</CardTitle>
+            <Button variant="ghost" size="sm" disabled className="shrink-0">
+              Lihat Semua
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+            Coming Soon
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="px-0 pb-0">
+          {mapSummary.length > 0 ? (
+            <IndonesiaFranchiseMap citySummary={mapSummary} />
+          ) : (
+            <div className="px-6 pb-6">
+              <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-16 text-center text-sm text-muted-foreground">
+                Data peta belum tersedia dari API.
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-5">
+        <Card className="xl:col-span-3">
+          <CardHeader>
+            <CardTitle>Top 10 Film Terlaris</CardTitle>
+            <CardDescription>Peringkat film berdasarkan total tiket terjual.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Peringkat</TableHead>
+                  <TableHead>Judul</TableHead>
+                  <TableHead>Genre</TableHead>
+                  <TableHead className="text-right">Tiket</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {topMovies.length > 0 ? (
+                  topMovies.map((movie, index) => (
+                    <TableRow key={movie.movie_id}>
+                      <TableCell>{index + 1}</TableCell>
+                      <TableCell className="font-medium">{movie.title}</TableCell>
+                      <TableCell>{movie.genre[0] ?? "-"}</TableCell>
+                      <TableCell className="text-right">
+                        {movie.tickets_sold.toLocaleString("id-ID")}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">{formatCompactCurrency(movie.revenue)}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      {loading ? "Loading top movies..." : "Data film terlaris belum tersedia."}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6 xl:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle>Top Film Distribution</CardTitle>
-              <CardDescription>
-                Ticket share for the best-performing films.
-              </CardDescription>
+              <CardTitle>Okupansi Studio</CardTitle>
+              <CardDescription>Rata-rata okupansi per jam dari data API.</CardDescription>
             </CardHeader>
-
-            <CardContent className="h-[260px] min-w-0">
-              {pieData.length > 0 ? (
+            <CardContent className="h-[320px] pr-2">
+              {occupancyChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      outerRadius={90}
-                      label
-                    >
-                      {pieData.map((_, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            index === 0
-                              ? "hsl(var(--chart-1))"
-                              : index === 1
-                              ? "hsl(var(--chart-2))"
-                              : index === 2
-                              ? "hsl(var(--chart-3))"
-                              : index === 3
-                              ? "hsl(var(--chart-4))"
-                              : "hsl(var(--chart-5))"
-                          }
-                        />
-                      ))}
-                    </Pie>
+                  <LineChart data={occupancyChartData}>
+                    <XAxis
+                      dataKey="label"
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={12}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={12}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(value) => `${value}%`}
+                    />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: "hsl(var(--card))",
                         borderColor: "hsl(var(--border))",
                       }}
+                      formatter={(value, name) => [`${value}%`, name === "occupancy" ? "Okupansi" : name]}
                     />
-                  </PieChart>
+                    {selectedCity === "all" && selectedCinema === "all" && multiCityOccupancyKeys.length > 0 ? (
+                      <>
+                        <Legend />
+                        {multiCityOccupancyKeys.map((city, index) => (
+                          <Line
+                            key={city}
+                            type="monotone"
+                            dataKey={city}
+                            stroke={occupancyLineColors[index % occupancyLineColors.length]}
+                            strokeWidth={2.5}
+                            dot={false}
+                            connectNulls
+                          />
+                        ))}
+                      </>
+                    ) : (
+                      <Line
+                        type="monotone"
+                        dataKey="occupancy"
+                        stroke="hsl(var(--primary))"
+                        strokeWidth={3}
+                        dot={false}
+                      />
+                    )}
+                  </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-full items-center justify-center">
-                  <p className="text-sm text-muted-foreground">
-                    No distribution data available.
-                  </p>
+                <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 text-sm text-muted-foreground">
+                  {loading ? "Loading occupancy..." : "Data okupansi belum tersedia."}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>System Health</CardTitle>
+              <CardDescription>Tracks incoming transactions from the last hour</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <span>Status</span>
+                </div>
+                <Badge variant="outline" className="capitalize">
+                  {data.health?.status ?? "Unavailable"}
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <Ticket className="h-4 w-4 text-muted-foreground" />
+                  <span>Transactions (Last 60 mins)</span>
+                </div>
+                <span className="font-medium">
+                  {data.health ? data.health.tickets_last_hour.toLocaleString("id-ID") : "--"}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                  <span>Last Updated</span>
+                </div>
+                <span className="text-right font-medium">
+                  {data.health?.last_data_in
+                    ? format(new Date(data.health.last_data_in), "dd MMM yyyy, HH:mm")
+                    : "--"}
+                </span>
+              </div>
             </CardContent>
           </Card>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Occupancy by Hour</CardTitle>
-            <CardDescription>
-              Average occupancy trend across the selected network scope.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="h-[250px] min-w-0 pr-6">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={hourlyOccupancyData}>
-                <defs>
-                  <linearGradient id="occupancyGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor="hsl(var(--chart-1))"
-                      stopOpacity={0.8}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="hsl(var(--chart-1))"
-                      stopOpacity={0}
-                    />
-                  </linearGradient>
-                </defs>
-
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    borderColor: "hsl(var(--border))",
-                  }}
-                  formatter={(value) => [`${value}%`, "Occupancy"]}
-                />
-
-                <Area
-                  type="monotone"
-                  dataKey="occupancy"
-                  stroke="hsl(var(--chart-1))"
-                  fill="url(#occupancyGradient)"
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">System Status</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-
-          <CardContent className="space-y-2">
-            <div className="text-2xl font-bold">{activeFranchiseCount} Active</div>
-            <p className="text-sm text-muted-foreground">
-              {nonActiveFranchiseCount} non-active node
-              {nonActiveFranchiseCount !== 1 ? "s" : ""}
-            </p>
-
-            <Badge
-              className={`${
-                networkHealthLabel === "Healthy"
-                  ? "border-green-500/30 bg-green-500/20 text-green-400"
-                  : networkHealthLabel === "Degraded"
-                  ? "border-amber-500/30 bg-amber-500/20 text-amber-400"
-                  : "border-red-500/30 bg-red-500/20 text-red-400"
-              }`}
-            >
-              {networkHealthLabel}
-            </Badge>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Transactions in the Last Hour
-            </CardTitle>
-            <Clock3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-
-          <CardContent className="space-y-2">
-            <div className="text-2xl font-bold">
-              {transactionsInLastHour.length.toLocaleString("en-US")}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {transactionsInLastHour
-                .reduce((acc, row) => acc + row.tickets, 0)
-                .toLocaleString("en-US")}{" "}
-              tickets processed
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {latestTransactionTime
-                ? `Window ending ${format(latestTransactionTime, "MMM dd, yyyy · HH:mm")}`
-                : "No recent transaction data"}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Last System Update</CardTitle>
-            <RefreshCw className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-
-          <CardContent className="space-y-2">
-            <div className="text-2xl font-bold">
-              {lastSystemUpdate
-                ? format(lastSystemUpdate, "HH:mm")
-                : "--:--"}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {lastSystemUpdate
-                ? format(lastSystemUpdate, "MMM dd, yyyy")
-                : "No update data available"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Latest refresh within the current dashboard filter scope
-            </p>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }

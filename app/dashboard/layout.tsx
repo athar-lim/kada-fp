@@ -113,12 +113,16 @@ export default function DashboardLayout({
     "/login": "ADMIN LOGIN",
   };
 
+  const dynamicPageTitle = pathname.startsWith("/dashboard/cities/")
+    ? "CITY PERFORMANCE"
+    : null;
+
   const matchedTitle =
     Object.keys(titleMap)
       .sort((a, b) => b.length - a.length)
       .find((route) => pathname === route || pathname.startsWith(route + "/")) || "/dashboard";
 
-  const pageTitle = titleMap[matchedTitle];
+  const pageTitle = dynamicPageTitle ?? titleMap[matchedTitle];
 
   if (loading && !user) {
     return (
@@ -142,7 +146,7 @@ export default function DashboardLayout({
     <div className="flex min-h-screen w-full bg-[#f8f9fb] text-zinc-900">
       <aside
         className={cn(
-          "flex shrink-0 flex-col border-r border-zinc-200 bg-white transition-all duration-300 ease-in-out",
+          "sticky top-0 flex h-screen shrink-0 flex-col overflow-hidden border-r border-zinc-200 bg-white transition-all duration-300 ease-in-out",
           collapsed ? "w-20" : "w-72"
         )}
       >
@@ -266,7 +270,7 @@ export default function DashboardLayout({
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-6">
+        <header className="sticky top-0 z-[1000] flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-6">
           <div className="flex items-center gap-4">
             {collapsed && (
               <button

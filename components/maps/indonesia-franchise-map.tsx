@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MapPinned } from "lucide-react";
@@ -19,6 +20,7 @@ export default function IndonesiaFranchiseMap({
 }: {
   citySummary: CitySummaryItem[];
 }) {
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
 
@@ -50,7 +52,7 @@ export default function IndonesiaFranchiseMap({
         const color =
           city.occupancy >= 70
             ? "#22c55e"
-            : city.occupancy >= 40
+            : city.occupancy >= 30
             ? "#f59e0b"
             : "#ef4444";
 
@@ -66,7 +68,7 @@ export default function IndonesiaFranchiseMap({
           fillOpacity: 0.85,
         })
           .addTo(map)
-          .bindPopup(`
+          .bindTooltip(`
             <div style="min-width: 160px;">
               <strong>${city.name}</strong><br/>
               Total nodes: ${city.totalNodes}<br/>
@@ -74,7 +76,14 @@ export default function IndonesiaFranchiseMap({
               Non-active: ${city.nonActiveNodes}<br/>
               Avg occupancy: ${city.occupancy.toFixed(1)}%
             </div>
-          `);
+          `, {
+            direction: "top",
+            sticky: true,
+            opacity: 0.95,
+          })
+          .on("click", () => {
+            router.push(`/dashboard/cities/${encodeURIComponent(city.name)}`);
+          });
       });
 
       setTimeout(() => {
@@ -91,7 +100,7 @@ export default function IndonesiaFranchiseMap({
         mapRef.current = null;
       }
     };
-  }, [citySummary]);
+  }, [citySummary, router]);
 
   return (
     <Card className="h-full">
@@ -111,7 +120,7 @@ export default function IndonesiaFranchiseMap({
         </Badge>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="relative z-0">
         <div
           ref={containerRef}
           className="h-[380px] overflow-hidden rounded-xl border border-border"

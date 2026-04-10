@@ -1,3 +1,63 @@
+"use client";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL ??
+  "https://capstone-project-api-cinetrack.vercel.app";
+  // "http://127.0.0.1:8000";
+
+export type DashboardQuery = {
+  city?: string;
+  cinema_id?: string;
+  start_date?: string;
+  end_date?: string;
+};
+
+export type SummaryResponse = {
+  meta: {
+    period: string;
+    filters: {
+      city: string | null;
+      cinema_id: string | null;
+      studio_id: string | null;
+    };
+    scope: string;
+  };
+  data: {
+    total_tickets: number;
+    total_capacity?: number;
+    revenue: number;
+    occupancy: number;
+    total_transactions: number;
+    cinema_aktif: number;
+    cinema_tersedia: number;
+    growth?: {
+      tickets?: number;
+      revenue?: number;
+      avg_occupancy?: number;
+    };
+  };
+};
+
+type SummaryApiData = {
+  total_tickets: number;
+  total_capacity?: number;
+  revenue: number;
+  avg_occupancy: number;
+  total_transactions: number;
+  cinema_aktif: number;
+  cinema_tersedia: number;
+  growth?: {
+    tickets?: number;
+    revenue?: number;
+    avg_occupancy?: number;
+  };
+};
+
+export type CinemaBreakdownResponse = {
+  filters: {
+    city: string | null;
+    cinema_id: string | null;
+  };
 const API_BASE_URL = "https://capstone-project-api-cinetrack.vercel.app";
 
 type ApiResponse<T> = {
@@ -21,133 +81,260 @@ type CinemasResponse = {
     total_tickets: number;
     total_revenue: number;
   };
-  breakdown: CinemaBreakdown[];
+  breakdown: Array<{
+    cinema_id: string;
+    cinema_name: string;
+    city: string;
+    address: string;
+    metrics: {
+      total_tickets: number;
+      total_revenue: number;
+      active_movies: number;
+      active_studios: number;
+    };
+    top_movie: {
+      movie_id: string;
+      title: string;
+      tickets_sold: number;
+    };
+    top_genre: {
+      genre: string;
+      tickets_sold: number;
+    };
+  }>;
 };
 
-type Studio = {
-  cinema_id: string;
-  total_capacity: number;
+export type TrendsResponse = {
+  summary: {
+    group_by: string;
+    total_tickets: number;
+    revenue: number;
+    growth?: {
+      tickets?: number;
+      revenue?: number;
+    };
+  };
+  breakdown: Array<{
+    time_group: string;
+    tickets_sold: number;
+    revenue: number;
+  }>;
 };
 
-type DashboardFilters = {
-  cityId: string;
-  cinemaId: string;
+export type OccupancyResponse = {
+  summary: {
+    group_by: string;
+    total_tickets: number;
+    total_capacity: number;
+    occupancy: number;
+    avg_occupancy?: number;
+  };
+  breakdown: Array<{
+    time_group: string;
+    total_tickets: number;
+    total_capacity: number;
+    occupancy: number;
+    avg_occupancy: number;
+  }>;
 };
 
-export type DashboardMetricPoint = {
-  name: string;
-  value: number;
+type OccupancyApiData = {
+  summary: {
+    group_by: string;
+    total_tickets: number;
+    total_capacity: number;
+    occupancy?: number;
+    avg_occupancy?: number;
+  };
+  breakdown: Array<{
+    time_group: string;
+    total_tickets: number;
+    total_capacity: number;
+    occupancy?: number;
+    avg_occupancy?: number;
+  }>;
 };
 
-export type DashboardMetrics = {
-  totalTickets: number;
-  totalRevenue: number;
-  activeCinemas: number;
-  totalCinemas: number;
-  inactiveCinemas: number;
-  averageOccupancy: number | null;
-  ticketsChart: DashboardMetricPoint[];
-  revenueChart: DashboardMetricPoint[];
-  activeChart: DashboardMetricPoint[];
-  occupancyChart: DashboardMetricPoint[];
+export type MovieStatsResponse = {
+  filters: {
+    city: string | null;
+    cinema_id: string | null;
+    rating_usia: string | null;
+  };
+  summary: {
+    total_movies_showing: number;
+    total_tickets_sold: number;
+    top_movie: {
+      movie_id: string;
+      title: string;
+      tickets_sold: number;
+    };
+    top_genre: {
+      genre: string;
+      tickets_sold: number;
+    };
+  };
+  breakdown_rating_usia: Array<{
+    rating_usia: string;
+    total_tickets_sold: number;
+    total_showings: number;
+  }>;
 };
 
-const cityNameMap: Record<string, string> = {
-  jakarta: "Jakarta",
-  surabaya: "Surabaya",
-  bandung: "Bandung",
-  medan: "Medan",
-  semarang: "Semarang",
-  makassar: "Makassar",
-  balikpapan: "Balikpapan",
-  palembang: "Palembang",
+export type TopMovie = {
+  movie_id: string;
+  title: string;
+  genre: string[];
+  rating_usia: string;
+  duration_min: number;
+  tickets_sold: number;
+  revenue: number;
 };
 
-// Fungsi ini membentuk query API dari filter dashboard yang aktif.
-// Jika cinema dipilih, filter city diabaikan agar ID cinema tetap valid.
-const buildCinemasUrl = ({ cityId, cinemaId }: DashboardFilters) => {
-  const url = new URL(`${API_BASE_URL}/cinemas`);
+export type HealthResponse = {
+  status: string;
+  last_data_in: string;
+  tickets_last_hour: number;
+};
 
-  if (cinemaId !== "all") {
-    url.searchParams.set("cinema_id", cinemaId);
-    return url.toString();
+type ApiEnvelope<T> = {
+  success?: boolean;
+  data: T;
+  meta?: {
+    filters?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+};
+
+function buildQueryString(query?: Record<string, string | undefined>) {
+  const params = new URLSearchParams();
+
+  if (!query) return params.toString();
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value) {
+      params.set(key, value);
+    }
+  });
+
+  return params.toString();
+}
+
+async function fetchJson<T>(
+  path: string,
+  query?: Record<string, string | undefined>,
+  options?: {
+    unwrapEnvelope?: boolean;
   }
+): Promise<T> {
+  const queryString = buildQueryString(query);
+  const url = queryString ? `${API_BASE_URL}${path}?${queryString}` : `${API_BASE_URL}${path}`;
 
-  const cityName = cityNameMap[cityId];
-  if (cityId !== "all" && cityName) {
-    url.searchParams.set("city", cityName);
-  }
-
-  return url.toString();
-};
-
-// Fungsi ini mengambil JSON dari endpoint API dan melempar error jika gagal.
-// Helper ini menjaga logika request tetap singkat di komponen dashboard.
-const getJson = async <T,>(url: string): Promise<T> => {
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw new Error(`Request failed for ${path} (${response.status})`);
   }
 
-  const result = (await response.json()) as ApiResponse<T>;
+  const payload = (await response.json()) as T | ApiEnvelope<T>;
+  const shouldUnwrapEnvelope = options?.unwrapEnvelope ?? true;
 
-  if (!result.success) {
-    throw new Error("API returned an unsuccessful response");
+  if (!shouldUnwrapEnvelope) {
+    return payload as T;
   }
 
-  return result.data;
-};
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "data" in payload &&
+    !Array.isArray(payload)
+  ) {
+    const envelope = payload as ApiEnvelope<T>;
 
-// Fungsi ini mencoba menghitung occupancy dari data kapasitas studio.
-// Nilainya dikembalikan `null` jika API belum memberi data yang cukup akurat.
-const calculateAverageOccupancy = (
-  cinemas: CinemasResponse,
-  studios: Studio[],
-  filters: DashboardFilters
-) => {
-  if (studios.length === 0) return null;
+    if (Array.isArray(envelope.data) || typeof envelope.data !== "object" || envelope.data === null) {
+      return envelope.data;
+    }
 
-  const visibleCinemaIds =
-    filters.cinemaId !== "all"
-      ? new Set([filters.cinemaId])
-      : new Set(cinemas.breakdown.map((item) => item.cinema_id));
+    return {
+      ...envelope.data,
+      meta: envelope.meta,
+    } as T;
+  }
 
-  const visibleStudios = studios.filter((studio) => visibleCinemaIds.has(studio.cinema_id));
-  const totalCapacity = visibleStudios.reduce(
-    (total, studio) => total + studio.total_capacity,
-    0
-  );
+  return payload as T;
+}
 
-  if (totalCapacity === 0) return null;
-  return null;
-};
-
-// Fungsi ini merangkum respons API menjadi format yang dipakai kartu metrik.
-// Data chart diambil per cinema agar kartu tetap punya sparkline sederhana.
-export const getDashboardMetrics = async (filters: DashboardFilters) => {
-  const [cinemas, studios] = await Promise.all([
-    getJson<CinemasResponse>(buildCinemasUrl(filters)),
-    getJson<Studio[]>(`${API_BASE_URL}/studios`),
-  ]);
-
-  const points = cinemas.breakdown.map((item) => ({
-    name: item.cinema_id,
-    tickets: item.metrics.total_tickets,
-    revenue: item.metrics.total_revenue,
-    active: item.metrics.active_studios > 0 ? 1 : 0,
+export function getDashboardSummary(query?: DashboardQuery) {
+  return fetchJson<
+    ApiEnvelope<SummaryApiData>
+  >("/stats/summary", query, { unwrapEnvelope: false }).then((payload) => ({
+    data: {
+      total_tickets: payload.data.total_tickets,
+      total_capacity: payload.data.total_capacity,
+      revenue: payload.data.revenue,
+      occupancy: payload.data.avg_occupancy,
+      total_transactions: payload.data.total_transactions,
+      cinema_aktif: payload.data.cinema_aktif,
+      cinema_tersedia: payload.data.cinema_tersedia,
+      growth: payload.data.growth
+        ? {
+            tickets: payload.data.growth.tickets,
+            revenue: payload.data.growth.revenue,
+            avg_occupancy: payload.data.growth.avg_occupancy,
+          }
+        : undefined,
+    },
+    meta: {
+      period: String(payload.meta?.period ?? ""),
+      filters: {
+        city: (payload.meta?.filters?.city as string | null | undefined) ?? null,
+        cinema_id: (payload.meta?.filters?.cinema_id as string | null | undefined) ?? null,
+        studio_id: (payload.meta?.filters?.studio_id as string | null | undefined) ?? null,
+      },
+      scope: String(payload.meta?.scope ?? ""),
+    },
   }));
+}
 
-  return {
-    totalTickets: cinemas.summary.total_tickets,
-    totalRevenue: cinemas.summary.total_revenue,
-    activeCinemas: cinemas.summary.active_cinemas,
-    totalCinemas: cinemas.summary.total_cinemas,
-    inactiveCinemas: cinemas.summary.total_cinemas - cinemas.summary.active_cinemas,
-    averageOccupancy: calculateAverageOccupancy(cinemas, studios, filters),
-    ticketsChart: points.map((item) => ({ name: item.name, value: item.tickets })),
-    revenueChart: points.map((item) => ({ name: item.name, value: item.revenue })),
-    activeChart: points.map((item) => ({ name: item.name, value: item.active })),
-    occupancyChart: [],
-  } satisfies DashboardMetrics;
-};
+export function getCinemaBreakdown(query?: DashboardQuery) {
+  return fetchJson<CinemaBreakdownResponse>("/cinemas", query);
+}
+
+export function getTrendStats(query?: DashboardQuery) {
+  return fetchJson<TrendsResponse>("/stats/trends", query);
+}
+
+export function getOccupancyStats(query?: DashboardQuery) {
+  return fetchJson<OccupancyApiData>("/stats/occupancy", query).then((payload) => ({
+    summary: {
+      ...payload.summary,
+      occupancy: payload.summary.occupancy ?? payload.summary.avg_occupancy ?? 0,
+      avg_occupancy: payload.summary.avg_occupancy ?? payload.summary.occupancy ?? 0,
+    },
+    breakdown: payload.breakdown.map((item) => ({
+      ...item,
+      occupancy: item.occupancy ?? item.avg_occupancy ?? 0,
+      avg_occupancy: item.avg_occupancy ?? item.occupancy ?? 0,
+    })),
+  }));
+}
+
+export function getMovieStats(query?: DashboardQuery) {
+  return fetchJson<MovieStatsResponse>("/stats/movie", query);
+}
+
+export function getTopMovies(query?: DashboardQuery) {
+  return fetchJson<TopMovie[]>("/movie", {
+    ...query,
+    top10: "true",
+  });
+}
+
+export function getSystemHealth() {
+  return fetchJson<HealthResponse>("/system/health");
+}

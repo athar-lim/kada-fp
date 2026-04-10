@@ -132,7 +132,7 @@ export function DateRangeFilter({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className="w-full justify-start text-left font-normal md:w-[260px]"
+          className="flex h-15 w-full items-center justify-between rounded-xl border border-border bg-card px-8 py-3 text-sm text-foreground shadow-sm outline-none"
         >
           <CalendarIcon className="mr-2 h-4 w-4" />
           <span className="truncate">{appliedLabel}</span>
@@ -150,7 +150,7 @@ export function DateRangeFilter({
                 key={preset.label}
                 type="button"
                 onClick={() => setTempRange(preset.getValue())}
-                className="w-full border-b px-6 py-5 text-left text-base transition hover:bg-muted/40"
+                className="w-full border-b px-9 py-5 text-left text-base transition hover:bg-muted/40"
               >
                 {preset.label}
               </button>
