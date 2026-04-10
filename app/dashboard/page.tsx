@@ -5,7 +5,6 @@ import { DateRange } from "react-day-picker";
 import { format } from "date-fns";
 import {
   Activity,
-  CalendarDays,
   DollarSign,
   Gauge,
   MapPinned,
@@ -29,7 +28,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -51,39 +49,24 @@ import {
 import {
   getCinemaBreakdown,
   getDashboardSummary,
-  getMovieStats,
   getOccupancyStats,
   getSystemHealth,
   getTopMovies,
-  getTrendStats,
   type CinemaBreakdownResponse,
   type DashboardQuery,
   type HealthResponse,
-  type MovieStatsResponse,
   type OccupancyResponse,
   type SummaryResponse,
   type TopMovie,
-  type TrendsResponse,
 } from "@/lib/cinetrack-api";
 
 type DashboardPayload = {
   summary: SummaryResponse | null;
   cinemas: CinemaBreakdownResponse | null;
-  trends: TrendsResponse | null;
   occupancy: OccupancyResponse | null;
-  movieStats: MovieStatsResponse | null;
   topMovies: TopMovie[] | null;
   health: HealthResponse | null;
 };
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { DateRangeFilter } from "@/components/filters/date-range-filter";
-import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
-import { DashboardMetrics, getDashboardMetrics } from "@/lib/cinetrack-api";
 
 type DashboardErrors = Partial<Record<keyof DashboardPayload, string>>;
 
@@ -166,6 +149,24 @@ function getErrorMessage(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
 
+function formatPeriod(periodString?: string) {
+  if (!periodString) return "Semua tanggal";
+
+  const [startDate, endDate] = periodString.split(" to ");
+  if (!startDate || !endDate) return periodString;
+
+  const options: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  };
+
+  const start = new Date(startDate).toLocaleDateString("id-ID", options);
+  const end = new Date(endDate).toLocaleDateString("id-ID", options);
+
+  return `${start} - ${end}`;
+}
+
 export default function DashboardPage() {
   const [selectedCity, setSelectedCity] = useState("all");
   const [selectedCinema, setSelectedCinema] = useState("all");
@@ -173,17 +174,9 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload>({
     summary: null,
     cinemas: null,
-    trends: null,
     occupancy: null,
-    movieStats: null,
     topMovies: null,
     health: null,
-  const [selectedFranchiseTab, setSelectedFranchiseTab] = useState("all");
-  const [apiMetrics, setApiMetrics] = useState<DashboardMetrics | null>(null);
-  const [apiMetricsError, setApiMetricsError] = useState(false);
-  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>({
-    from: new Date(2026, 2, 24),
-    to: new Date(2026, 2, 29),
   });
   const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
@@ -205,9 +198,7 @@ export default function DashboardPage() {
       const results = await Promise.allSettled([
         getDashboardSummary(query),
         getCinemaBreakdown(query),
-        getTrendStats(query),
         getOccupancyStats(query),
-        getMovieStats(query),
         getTopMovies(query),
         getSystemHealth(),
       ]);
@@ -217,51 +208,10 @@ export default function DashboardPage() {
       setData({
         summary: results[0].status === "fulfilled" ? results[0].value : null,
         cinemas: results[1].status === "fulfilled" ? results[1].value : null,
-        trends: results[2].status === "fulfilled" ? results[2].value : null,
-        occupancy: results[3].status === "fulfilled" ? results[3].value : null,
-        movieStats: results[4].status === "fulfilled" ? results[4].value : null,
-        topMovies: results[5].status === "fulfilled" ? results[5].value : null,
-        health: results[6].status === "fulfilled" ? results[6].value : null,
+        occupancy: results[2].status === "fulfilled" ? results[2].value : null,
+        topMovies: results[3].status === "fulfilled" ? results[3].value : null,
+        health: results[4].status === "fulfilled" ? results[4].value : null,
       });
-    // Effect ini mengambil ringkasan metrik live dari backend saat filter berubah.
-    // State lama dipertahankan sampai request baru selesai agar UI tetap stabil.
-    const loadMetrics = async () => {
-      try {
-        const metrics = await getDashboardMetrics({
-          cityId: selectedCity,
-          cinemaId: selectedCinema,
-        });
-
-        if (cancelled) return;
-        setApiMetrics(metrics);
-        setApiMetricsError(false);
-      } catch {
-        if (cancelled) return;
-        setApiMetricsError(true);
-      }
-    };
-
-    loadMetrics();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedCity, selectedCinema]);
-
-  const visibleCinemaOptions = useMemo(() => {
-    const filteredCinemas = cinemaNetwork.filter((cinema) => {
-      if (selectedCity === "all") return true;
-      return cinema.cityId === selectedCity;
-    });
-
-    return [
-      { id: "all", name: "All Cinemas" },
-      ...filteredCinemas.map((cinema) => ({
-        id: cinema.id,
-        name: cinema.name,
-      })),
-    ];
-  }, [selectedCity]);
 
       setErrors({
         summary:
@@ -272,25 +222,17 @@ export default function DashboardPage() {
           results[1].status === "rejected"
             ? getErrorMessage(results[1].reason, "Failed to load cinemas.")
             : undefined,
-        trends:
-          results[2].status === "rejected"
-            ? getErrorMessage(results[2].reason, "Failed to load trends.")
-            : undefined,
         occupancy:
-          results[3].status === "rejected"
-            ? getErrorMessage(results[3].reason, "Failed to load occupancy.")
-            : undefined,
-        movieStats:
-          results[4].status === "rejected"
-            ? getErrorMessage(results[4].reason, "Failed to load movie stats.")
+          results[2].status === "rejected"
+            ? getErrorMessage(results[2].reason, "Failed to load occupancy.")
             : undefined,
         topMovies:
-          results[5].status === "rejected"
-            ? getErrorMessage(results[5].reason, "Failed to load top movies.")
+          results[3].status === "rejected"
+            ? getErrorMessage(results[3].reason, "Failed to load top movies.")
             : undefined,
         health:
-          results[6].status === "rejected"
-            ? getErrorMessage(results[6].reason, "Failed to load system health.")
+          results[4].status === "rejected"
+            ? getErrorMessage(results[4].reason, "Failed to load system health.")
             : undefined,
       });
 
@@ -308,137 +250,6 @@ export default function DashboardPage() {
     if (!data.cinemas) return [{ id: "all", name: "All City" }];
 
     const uniqueCities = [...new Set(data.cinemas.breakdown.map((item) => item.city))].sort();
-  const activeFranchiseCount = latestByCinema.filter(
-    (row) => row.status === "ACTIVE"
-  ).length;
-  const nonActiveFranchiseCount = latestByCinema.filter(
-    (row) => row.status !== "ACTIVE"
-  ).length;
-  const maintenanceCount = latestByCinema.filter(
-    (row) => row.status === "MAINTENANCE"
-  ).length;
-  const totalVisibleFranchise = latestByCinema.length;
-
-  const avgOccupancy =
-    filteredFranchiseRows.length > 0
-      ? filteredFranchiseRows.reduce((acc, row) => acc + row.occupancy, 0) /
-        filteredFranchiseRows.length
-      : 0;
-
-  const metricCardsData = [
-    {
-      title: "Total Tickets Sold",
-      value: (apiMetrics?.totalTickets ?? totalTickets).toLocaleString("en-US"),
-      trend: apiMetrics ? null : calculateTrend(dailySummary.map((item) => item.tickets)),
-      trendLabel: apiMetrics ? null : "vs start of period",
-      subtitle: apiMetrics
-        ? "Live API snapshot. Date filter is not supported yet."
-        : apiMetricsError
-        ? "API unavailable. Showing local fallback."
-        : "Across the selected period",
-      chartData:
-        apiMetrics?.ticketsChart ??
-        dailySummary.map((item) => ({ name: item.name, value: item.tickets })),
-      stroke: "hsl(var(--chart-1))",
-      icon: <Ticket className="h-4 w-4 text-muted-foreground" />,
-    },
-    {
-      title: "Period Revenue",
-      value: formatCompactCurrency(apiMetrics?.totalRevenue ?? totalRevenue),
-      trend: apiMetrics ? null : calculateTrend(dailySummary.map((item) => item.revenue)),
-      trendLabel: apiMetrics ? null : "vs start of period",
-      subtitle: apiMetrics
-        ? "Gross ticket revenue from the live backend."
-        : apiMetricsError
-        ? "API unavailable. Showing local fallback."
-        : "Gross ticket revenue",
-      chartData:
-        apiMetrics?.revenueChart ??
-        dailySummary.map((item) => ({ name: item.name, value: item.revenue })),
-      stroke: "hsl(var(--chart-2))",
-      icon: <DollarSign className="h-4 w-4 text-muted-foreground" />,
-    },
-    {
-      title: "Active Franchises",
-      value: `${apiMetrics?.activeCinemas ?? activeFranchiseCount} / ${
-        apiMetrics?.totalCinemas ?? totalVisibleFranchise
-      }`,
-      trend: null,
-      trendLabel: null,
-      subtitle: apiMetrics
-        ? `${apiMetrics.inactiveCinemas} inactive in the current API filter`
-        : apiMetricsError
-        ? "API unavailable. Showing local fallback."
-        : `${maintenanceCount} under maintenance`,
-      chartData:
-        apiMetrics?.activeChart ??
-        dailySummary.map((item) => ({ name: item.name, value: item.active })),
-      stroke: "hsl(var(--chart-3))",
-      icon: <Building2 className="h-4 w-4 text-muted-foreground" />,
-    },
-    {
-      title: "Average Occupancy",
-      value:
-        apiMetrics && apiMetrics.averageOccupancy === null
-          ? "N/A"
-          : `${(apiMetrics?.averageOccupancy ?? avgOccupancy).toFixed(1)}%`,
-      trend:
-        apiMetrics && apiMetrics.averageOccupancy === null
-          ? null
-          : apiMetrics
-          ? null
-          : calculateTrend(dailySummary.map((item) => item.occupancy)),
-      trendLabel: apiMetrics ? null : "vs start of period",
-      subtitle: apiMetrics
-        ? "Occupancy is not exposed by the API yet."
-        : apiMetricsError
-        ? "API unavailable. Showing local fallback."
-        : "Network-wide average",
-      chartData:
-        apiMetrics?.occupancyChart ??
-        dailySummary.map((item) => ({ name: item.name, value: item.occupancy })),
-      stroke: "hsl(var(--chart-4))",
-      icon: <Percent className="h-4 w-4 text-muted-foreground" />,
-    },
-  ];
-
-  const occupancyScale = avgOccupancy > 0 ? avgOccupancy / 73.2 : 0;
-  const baseHourlyCurve = [12, 15, 35, 60, 75, 95, 90, 20];
-  const hourlyLabels = ["00", "04", "08", "12", "16", "19", "21", "24"];
-
-  const hourlyOccupancyData = hourlyLabels.map((hour, index) => ({
-    hour,
-    occupancy: Number(
-      Math.min(100, Math.max(0, baseHourlyCurve[index] * occupancyScale)).toFixed(1)
-    ),
-  }));
-
-  const franchiseSummary = Object.values(
-    filteredFranchiseRows.reduce<
-      Record<
-        string,
-        {
-          name: string;
-          city: string;
-          cityId: string;
-          tickets: number;
-          occupancySum: number;
-          count: number;
-          status: NodeStatus;
-        }
-      >
-    >((acc, row) => {
-      if (!acc[row.cinemaId]) {
-        acc[row.cinemaId] = {
-          name: row.cinemaName,
-          city: row.cityLabel,
-          cityId: row.cityId,
-          tickets: 0,
-          occupancySum: 0,
-          count: 0,
-          status: row.status,
-        };
-      }
 
     return [
       { id: "all", name: "All City" },
@@ -466,20 +277,7 @@ export default function DashboardPage() {
   const mapSummary = useMemo(() => {
     if (!data.cinemas) return [];
 
-    const grouped = data.cinemas.breakdown.reduce<
-      Record<
-        string,
-        {
-          name: string;
-          totalNodes: number;
-          activeNodes: number;
-          nonActiveNodes: number;
-          occupancy: number;
-          occupancyCount: number;
-          coordinates: [number, number];
-        }
-      >
-    >((acc, cinema) => {
+    const grouped = data.cinemas.breakdown.reduce((acc, cinema) => {
       const coordinates = cityCoordinates[cinema.city] ?? [106.8456, -6.2088];
 
       if (!acc[cinema.city]) {
@@ -495,12 +293,25 @@ export default function DashboardPage() {
       }
 
       acc[cinema.city].totalNodes += 1;
-      acc[cinema.city].activeNodes += 1;
-      acc[cinema.city].occupancy += data.summary?.data.occupancy ?? 0;
-      acc[cinema.city].occupancyCount += 1;
+
+      if (cinema.metrics.active_studios > 0) {
+        acc[cinema.city].activeNodes += 1;
+        acc[cinema.city].occupancy += data.summary?.data.occupancy ?? 0;
+        acc[cinema.city].occupancyCount += 1;
+      } else {
+        acc[cinema.city].nonActiveNodes += 1;
+      }
 
       return acc;
-    }, {});
+    }, {} as Record<string, {
+      name: string;
+      totalNodes: number;
+      activeNodes: number;
+      nonActiveNodes: number;
+      occupancy: number;
+      occupancyCount: number;
+      coordinates: [number, number];
+    }>);
 
     return Object.values(grouped).map((item) => ({
       name: item.name,
@@ -516,6 +327,7 @@ export default function DashboardPage() {
     if (selectedCity === "all" && selectedCinema === "all" && multiCityOccupancyData.length > 0) {
       return multiCityOccupancyData;
     }
+
     if (!data.occupancy) return [];
 
     return data.occupancy.breakdown.map((item) => ({
@@ -535,14 +347,13 @@ export default function DashboardPage() {
       }
 
       const uniqueCities = [...new Set(data.cinemas.breakdown.map((item) => item.city))].sort();
-
       if (uniqueCities.length === 0) {
         setMultiCityOccupancyData([]);
         setMultiCityOccupancyKeys([]);
         return;
       }
 
-      const occupancyResults = await Promise.allSettled(
+      const results = await Promise.allSettled(
         uniqueCities.map((city) =>
           getOccupancyStats({
             city,
@@ -557,7 +368,7 @@ export default function DashboardPage() {
       const merged = new Map<string, MultiCityOccupancyPoint>();
       const successfulCities: string[] = [];
 
-      occupancyResults.forEach((result, index) => {
+      results.forEach((result, index) => {
         if (result.status !== "fulfilled") return;
 
         const city = uniqueCities[index];
@@ -582,26 +393,6 @@ export default function DashboardPage() {
     };
   }, [data.cinemas, query.end_date, query.start_date, selectedCity, selectedCinema]);
 
-  const formatPeriod = (periodString) => {
-    if (!periodString) return "";
-
-    const [startDate, endDate] = periodString.split(" to ");
-
-    const opt: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short", year: "numeric" };
-
-    const start = new Date(startDate).toLocaleDateString('id-ID', opt);
-    const end = new Date(endDate).toLocaleDateString('id-ID', opt);
-
-    return `${start} - ${end}`;
-  };
-
-  const periodLabel = selectedDateRange?.from
-    ? `${format(selectedDateRange.from, "d MMM yyyy")} - ${format(
-      selectedDateRange.to ?? selectedDateRange.from,
-      "d MMM yyyy"
-    )}`
-    : data.summary?.meta.period ?? "Semua tanggal";
-
   const topMovies = data.topMovies?.slice(0, 10) ?? [];
   const hasAnyError = Object.values(errors).some(Boolean);
   const ticketGrowth = data.summary?.data.growth?.tickets;
@@ -613,14 +404,13 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Cinema Operations Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Overview of your cinema operations.
-          </p>
+          <p className="text-sm text-muted-foreground">Overview of your cinema operations.</p>
           <p className="text-xs text-muted-foreground">
             {loading ? "--" : `Data from ${formatPeriod(data.summary?.meta.period)}`}
           </p>
         </div>
-        <div className="w-50%">
+
+        <div className="w-full max-w-5xl">
           <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
             <Select
               value={selectedCity}
@@ -662,29 +452,25 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-      <hr></hr>
 
-      {hasAnyError && (
+      {hasAnyError ? (
         <Card className="border-amber-300 bg-amber-50">
           <CardContent className="space-y-1 py-4 text-sm text-amber-700">
             <p>Beberapa data dashboard belum bisa dimuat dari API saat ini.</p>
-            {errors.summary && <p>Summary: {errors.summary}</p>}
-            {errors.cinemas && <p>Cinemas: {errors.cinemas}</p>}
-            {errors.movieStats && <p>Movie stats: {errors.movieStats}</p>}
-            {errors.topMovies && <p>Top movies: {errors.topMovies}</p>}
-            {errors.occupancy && <p>Occupancy: {errors.occupancy}</p>}
-            {errors.health && <p>System health: {errors.health}</p>}
+            {errors.summary ? <p>Summary: {errors.summary}</p> : null}
+            {errors.cinemas ? <p>Cinemas: {errors.cinemas}</p> : null}
+            {errors.topMovies ? <p>Top movies: {errors.topMovies}</p> : null}
+            {errors.occupancy ? <p>Occupancy: {errors.occupancy}</p> : null}
+            {errors.health ? <p>System health: {errors.health}</p> : null}
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">
-                Total Tickets Sold
-              </CardTitle>
+              <CardTitle className="text-sm font-medium">Total Tickets Sold</CardTitle>
               <Ticket className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
@@ -704,7 +490,7 @@ export default function DashboardPage() {
               {loading
                 ? "Loading..."
                 : ticketGrowth === undefined
-                  ? "undefined"
+                  ? "No growth data available"
                   : `${formatGrowthLabel(ticketGrowth)} vs previous period`}
             </p>
           </CardContent>
@@ -713,9 +499,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">
-                Total Revenue
-              </CardTitle>
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
@@ -735,7 +519,7 @@ export default function DashboardPage() {
               {loading
                 ? "Loading..."
                 : revenueGrowth === undefined
-                  ? "undefined"
+                  ? "No growth data available"
                   : `${formatGrowthLabel(revenueGrowth)} vs previous period`}
             </p>
           </CardContent>
@@ -744,9 +528,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">
-                Active Franchise
-              </CardTitle>
+              <CardTitle className="text-sm font-medium">Active Franchise</CardTitle>
               <MapPinned className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
@@ -765,9 +547,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">
-                Average Occupancy
-              </CardTitle>
+              <CardTitle className="text-sm font-medium">Average Occupancy</CardTitle>
               <Gauge className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
@@ -787,7 +567,7 @@ export default function DashboardPage() {
               {loading
                 ? "Loading..."
                 : avgOccupancyGrowth === undefined
-                  ? "undefined"
+                  ? "No growth data available"
                   : `${formatGrowthLabel(avgOccupancyGrowth)} vs previous period`}
             </p>
           </CardContent>
@@ -795,7 +575,7 @@ export default function DashboardPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex items-center justify-between py-6 px-8">
+        <CardHeader className="flex items-center justify-between px-8 py-6">
           <div className="flex w-full items-center justify-between gap-4">
             <CardTitle>Insight</CardTitle>
             <Button variant="ghost" size="sm" disabled className="shrink-0">
@@ -828,7 +608,6 @@ export default function DashboardPage() {
         <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Top 10 Film Terlaris</CardTitle>
-            <CardDescription>Peringkat film berdasarkan total tiket terjual.</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
@@ -851,7 +630,9 @@ export default function DashboardPage() {
                       <TableCell className="text-right">
                         {movie.tickets_sold.toLocaleString("id-ID")}
                       </TableCell>
-                      <TableCell className="text-right text-muted-foreground">{formatCompactCurrency(movie.revenue)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {formatCompactCurrency(movie.revenue)}
+                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
@@ -870,7 +651,6 @@ export default function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle>Okupansi Studio</CardTitle>
-              <CardDescription>Rata-rata okupansi per jam dari data API.</CardDescription>
             </CardHeader>
             <CardContent className="h-[320px] pr-2">
               {occupancyChartData.length > 0 ? (
@@ -934,7 +714,6 @@ export default function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle>System Health</CardTitle>
-              <CardDescription>Tracks incoming transactions from the last hour</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between text-sm">
@@ -972,7 +751,6 @@ export default function DashboardPage() {
           </Card>
         </div>
       </div>
-
     </div>
   );
 }

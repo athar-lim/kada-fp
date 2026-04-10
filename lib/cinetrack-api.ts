@@ -3,7 +3,6 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL ??
   "https://capstone-project-api-cinetrack.vercel.app";
-  // "http://127.0.0.1:8000";
 
 export type DashboardQuery = {
   city?: string;
@@ -42,7 +41,8 @@ type SummaryApiData = {
   total_tickets: number;
   total_capacity?: number;
   revenue: number;
-  avg_occupancy: number;
+  avg_occupancy?: number;
+  occupancy?: number;
   total_transactions: number;
   cinema_aktif: number;
   cinema_tersedia: number;
@@ -54,27 +54,10 @@ type SummaryApiData = {
 };
 
 export type CinemaBreakdownResponse = {
-  filters: {
+  filters?: {
     city: string | null;
     cinema_id: string | null;
   };
-const API_BASE_URL = "https://capstone-project-api-cinetrack.vercel.app";
-
-type ApiResponse<T> = {
-  success: boolean;
-  data: T;
-};
-
-type CinemaBreakdown = {
-  cinema_id: string;
-  metrics: {
-    total_tickets: number;
-    total_revenue: number;
-    active_studios: number;
-  };
-};
-
-type CinemasResponse = {
   summary: {
     total_cinemas: number;
     active_cinemas: number;
@@ -92,12 +75,12 @@ type CinemasResponse = {
       active_movies: number;
       active_studios: number;
     };
-    top_movie: {
+    top_movie?: {
       movie_id: string;
       title: string;
       tickets_sold: number;
     };
-    top_genre: {
+    top_genre?: {
       genre: string;
       tickets_sold: number;
     };
@@ -127,7 +110,7 @@ export type OccupancyResponse = {
     total_tickets: number;
     total_capacity: number;
     occupancy: number;
-    avg_occupancy?: number;
+    avg_occupancy: number;
   };
   breakdown: Array<{
     time_group: string;
@@ -201,6 +184,8 @@ type ApiEnvelope<T> = {
   success?: boolean;
   data: T;
   meta?: {
+    period?: string;
+    scope?: string;
     filters?: Record<string, unknown>;
     [key: string]: unknown;
   };
@@ -254,40 +239,25 @@ async function fetchJson<T>(
     "data" in payload &&
     !Array.isArray(payload)
   ) {
-    const envelope = payload as ApiEnvelope<T>;
-
-    if (Array.isArray(envelope.data) || typeof envelope.data !== "object" || envelope.data === null) {
-      return envelope.data;
-    }
-
-    return {
-      ...envelope.data,
-      meta: envelope.meta,
-    } as T;
+    return (payload as ApiEnvelope<T>).data;
   }
 
   return payload as T;
 }
 
 export function getDashboardSummary(query?: DashboardQuery) {
-  return fetchJson<
-    ApiEnvelope<SummaryApiData>
-  >("/stats/summary", query, { unwrapEnvelope: false }).then((payload) => ({
+  return fetchJson<ApiEnvelope<SummaryApiData>>("/stats/summary", query, {
+    unwrapEnvelope: false,
+  }).then((payload) => ({
     data: {
       total_tickets: payload.data.total_tickets,
       total_capacity: payload.data.total_capacity,
       revenue: payload.data.revenue,
-      occupancy: payload.data.avg_occupancy,
+      occupancy: payload.data.avg_occupancy ?? payload.data.occupancy ?? 0,
       total_transactions: payload.data.total_transactions,
       cinema_aktif: payload.data.cinema_aktif,
       cinema_tersedia: payload.data.cinema_tersedia,
-      growth: payload.data.growth
-        ? {
-            tickets: payload.data.growth.tickets,
-            revenue: payload.data.growth.revenue,
-            avg_occupancy: payload.data.growth.avg_occupancy,
-          }
-        : undefined,
+      growth: payload.data.growth,
     },
     meta: {
       period: String(payload.meta?.period ?? ""),
