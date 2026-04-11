@@ -46,6 +46,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   getCinemaBreakdown,
   getDashboardSummary,
@@ -165,6 +167,15 @@ function formatPeriod(periodString?: string) {
   const end = new Date(endDate).toLocaleDateString("id-ID", options);
 
   return `${start} - ${end}`;
+}
+
+function MetricCardSkeleton() {
+  return (
+    <div className="space-y-3">
+      <Skeleton className="h-8 w-32" />
+      <Skeleton className="h-4 w-40" />
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -402,13 +413,17 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Cinema Operations Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of your cinema operations.</p>
-          <p className="text-xs text-muted-foreground">
-            {loading ? "--" : `Data from ${formatPeriod(data.summary?.meta.period)}`}
-          </p>
-        </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Cinema Operations Dashboard</h1>
+            <p className="text-sm text-muted-foreground">Overview of your cinema operations.</p>
+            {loading ? (
+              <Skeleton className="mt-2 h-3 w-40" />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {`Data from ${formatPeriod(data.summary?.meta.period)}`}
+              </p>
+            )}
+          </div>
 
         <div className="w-full max-w-5xl">
           <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
@@ -475,24 +490,28 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {data.summary ? data.summary.data.total_tickets.toLocaleString("id-ID") : "--"}
-            </div>
-            <p
-              className={
-                loading || ticketGrowth === undefined
-                  ? "text-xs text-muted-foreground"
-                  : ticketGrowth < 0
-                    ? "text-xs text-red-600"
-                    : "text-xs text-green-600"
-              }
-            >
-              {loading
-                ? "Loading..."
-                : ticketGrowth === undefined
-                  ? "No growth data available"
-                  : `${formatGrowthLabel(ticketGrowth)} vs previous period`}
-            </p>
+            {loading ? (
+              <MetricCardSkeleton />
+            ) : (
+              <>
+                <div className="text-2xl font-bold">
+                  {data.summary ? data.summary.data.total_tickets.toLocaleString("id-ID") : "--"}
+                </div>
+                <p
+                  className={
+                    ticketGrowth === undefined
+                      ? "text-xs text-muted-foreground"
+                      : ticketGrowth < 0
+                        ? "text-xs text-red-600"
+                        : "text-xs text-green-600"
+                  }
+                >
+                  {ticketGrowth === undefined
+                    ? "No growth data available"
+                    : `${formatGrowthLabel(ticketGrowth)} vs previous period`}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -504,43 +523,65 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {data.summary ? formatCompactCurrency(data.summary.data.revenue) : "--"}
-            </div>
-            <p
-              className={
-                loading || revenueGrowth === undefined
-                  ? "text-xs text-muted-foreground"
-                  : revenueGrowth < 0
-                    ? "text-xs text-red-600"
-                    : "text-xs text-green-600"
-              }
-            >
-              {loading
-                ? "Loading..."
-                : revenueGrowth === undefined
-                  ? "No growth data available"
-                  : `${formatGrowthLabel(revenueGrowth)} vs previous period`}
-            </p>
+            {loading ? (
+              <MetricCardSkeleton />
+            ) : (
+              <>
+                <div className="text-2xl font-bold">
+                  {data.summary ? formatCompactCurrency(data.summary.data.revenue) : "--"}
+                </div>
+                <p
+                  className={
+                    revenueGrowth === undefined
+                      ? "text-xs text-muted-foreground"
+                      : revenueGrowth < 0
+                        ? "text-xs text-red-600"
+                        : "text-xs text-green-600"
+                  }
+                >
+                  {revenueGrowth === undefined
+                    ? "No growth data available"
+                    : `${formatGrowthLabel(revenueGrowth)} vs previous period`}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Active Franchise</CardTitle>
+              <CardTitle className="text-sm font-medium">Active Franchises</CardTitle>
               <MapPinned className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {data.summary
-                ? `${data.summary.data.cinema_aktif} / ${data.summary.data.cinema_tersedia}`
-                : "--"}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {loading ? "Loading..." : "Cabang aktif dari total cabang tersedia"}
-            </p>
+            {loading ? (
+              <MetricCardSkeleton />
+            ) : (
+              <>
+                <div className="text-2xl font-bold">
+                  {data.summary
+                    ? `${data.summary.data.cinema_aktif} / ${data.summary.data.cinema_tersedia}`
+                    : "--"}
+                </div>
+                <div className="space-y-2">
+                  <Progress
+                    value={
+                      data.summary && data.summary.data.cinema_tersedia > 0
+                        ? (data.summary.data.cinema_aktif / data.summary.data.cinema_tersedia) * 100
+                        : 0
+                    }
+                    className="h-1"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {data.summary && data.summary.data.cinema_tersedia > 0
+                      ? `${((data.summary.data.cinema_aktif / data.summary.data.cinema_tersedia) * 100).toFixed(0)}% Active Franchises`
+                      : "Active Franchises out of Total Available"}
+                  </p>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -552,32 +593,39 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {data.summary ? `${data.summary.data.occupancy.toFixed(1)}%` : "--"}
-            </div>
-            <p
-              className={
-                loading || avgOccupancyGrowth === undefined
-                  ? "text-xs text-muted-foreground"
-                  : avgOccupancyGrowth < 0
-                    ? "text-xs text-red-600"
-                    : "text-xs text-green-600"
-              }
-            >
-              {loading
-                ? "Loading..."
-                : avgOccupancyGrowth === undefined
-                  ? "No growth data available"
-                  : `${formatGrowthLabel(avgOccupancyGrowth)} vs previous period`}
-            </p>
+            {loading ? (
+              <MetricCardSkeleton />
+            ) : (
+              <>
+                <div className="text-2xl font-bold">
+                  {data.summary ? `${data.summary.data.occupancy.toFixed(1)}%` : "--"}
+                </div>
+                <p
+                  className={
+                    avgOccupancyGrowth === undefined
+                      ? "text-xs text-muted-foreground"
+                      : avgOccupancyGrowth < 0
+                        ? "text-xs text-red-600"
+                        : "text-xs text-green-600"
+                  }
+                >
+                  {avgOccupancyGrowth === undefined
+                    ? "No growth data available"
+                    : `${formatGrowthLabel(avgOccupancyGrowth)} vs previous period`}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
 
       <Card>
-        <CardHeader className="flex items-center justify-between px-8 py-6">
-          <div className="flex w-full items-center justify-between gap-4">
-            <CardTitle>Insight</CardTitle>
+        <CardHeader className="flex items-center justify-between px-8 pt-6 pb-2">
+          <div className="flex w-full items-center justify-between gap-2">
+            <div>
+              <CardTitle>Operational Intelligence Insights</CardTitle>
+              <p className="text-sm text-gray-500 py-2">Based on data from [Date] to [Date]</p>
+            </div>
             <Button variant="ghost" size="sm" disabled className="shrink-0">
               Lihat Semua
             </Button>
@@ -597,7 +645,7 @@ export default function DashboardPage() {
           ) : (
             <div className="px-6 pb-6">
               <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-16 text-center text-sm text-muted-foreground">
-                Data peta belum tersedia dari API.
+                Map data unavailable
               </div>
             </div>
           )}
@@ -607,30 +655,30 @@ export default function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3">
           <CardHeader>
-            <CardTitle>Top 10 Film Terlaris</CardTitle>
+            <CardTitle>Top 10 Best-Selling Movies</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Peringkat</TableHead>
-                  <TableHead>Judul</TableHead>
-                  <TableHead>Genre</TableHead>
-                  <TableHead className="text-right">Tiket</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-center font-semibold">Peringkat</TableHead>
+                  <TableHead className="text-center font-semibold">Judul</TableHead>
+                  <TableHead className="text-center font-semibold">Genre</TableHead>
+                  <TableHead className="text-center font-semibold">Tiket</TableHead>
+                  <TableHead className="text-center font-semibold">Revenue</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {topMovies.length > 0 ? (
                   topMovies.map((movie, index) => (
                     <TableRow key={movie.movie_id}>
-                      <TableCell>{index + 1}</TableCell>
+                      <TableCell className="text-center">{index + 1}</TableCell>
                       <TableCell className="font-medium">{movie.title}</TableCell>
-                      <TableCell>{movie.genre[0] ?? "-"}</TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-center">{movie.genre[0] ?? "-"}</TableCell>
+                      <TableCell className="text-center">
                         {movie.tickets_sold.toLocaleString("id-ID")}
                       </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
+                      <TableCell className="text-center text-muted-foreground">
                         {formatCompactCurrency(movie.revenue)}
                       </TableCell>
                     </TableRow>
@@ -650,7 +698,8 @@ export default function DashboardPage() {
         <div className="space-y-6 xl:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle>Okupansi Studio</CardTitle>
+              <CardTitle>Average Studio Occupancy</CardTitle>
+              <p className="text-xs text-gray-500">Average occupancy rates across different cities</p>
             </CardHeader>
             <CardContent className="h-[320px] pr-2">
               {occupancyChartData.length > 0 ? (
@@ -679,7 +728,15 @@ export default function DashboardPage() {
                     />
                     {selectedCity === "all" && selectedCinema === "all" && multiCityOccupancyKeys.length > 0 ? (
                       <>
-                        <Legend />
+                        <Legend
+                          wrapperStyle={{
+                            paddingLeft: "0.5rem",
+                            paddingRight: "0.5rem",
+                            paddingTop: "0.5rem",
+                            fontSize: "12px",
+                          }}
+                          formatter={(value) => <span className="text-xs">{value}</span>}
+                        />
                         {multiCityOccupancyKeys.map((city, index) => (
                           <Line
                             key={city}

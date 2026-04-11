@@ -166,15 +166,6 @@ export default function DashboardLayout({
             )}
           </Link>
 
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={() => setCollapsed(true)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition hover:bg-zinc-50"
-            >
-              <PanelLeft className="h-4 w-4" />
-            </button>
-          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -272,15 +263,13 @@ export default function DashboardLayout({
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-[1000] flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-6">
           <div className="flex items-center gap-4">
-            {collapsed && (
-              <button
-                type="button"
-                onClick={() => setCollapsed(false)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition hover:bg-zinc-50"
-              >
-                <PanelLeft className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setCollapsed((prev) => !prev)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-zinc-700 transition hover:bg-zinc-50"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </button>
             <h1 className="text-lg font-semibold tracking-tight text-zinc-900">{pageTitle}</h1>
           </div>
 

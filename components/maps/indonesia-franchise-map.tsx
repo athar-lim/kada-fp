@@ -106,8 +106,7 @@ export default function IndonesiaFranchiseMap({
     <Card className="h-full">
       <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <CardTitle className="flex items-center gap-2">
-            <MapPinned className="h-5 w-5" />
+          <CardTitle className="flex items-center gap-2 py-2">
             Franchise Map - Indonesia
           </CardTitle>
           <CardDescription>
