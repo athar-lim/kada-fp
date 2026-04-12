@@ -1,11 +1,14 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Building2,
+  ChevronDown,
+  ChevronUp,
   DollarSign,
   Film,
   MapPinned,
@@ -43,17 +46,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   getCinemaBreakdown,
+  getCinemaStudios,
   getDashboardSummary,
   getMovieStats,
   getOccupancyStats,
   getTopMovies,
   getTrendStats,
   type CinemaBreakdownResponse,
+  type DashboardQuery,
   type MovieStatsResponse,
   type OccupancyResponse,
   type SummaryResponse,
+  type StudioResponse,
   type TopMovie,
   type TrendsResponse,
 } from "@/lib/cinetrack-api";
@@ -65,6 +72,12 @@ type CityPayload = {
   topMovies: TopMovie[];
   trends: TrendsResponse | null;
   occupancy: OccupancyResponse | null;
+};
+
+type StudioMetricSummary = {
+  totalTickets: number;
+  revenue: number;
+  occupancy: number;
 };
 
 const formatCurrency = (value: number) =>
@@ -81,26 +94,68 @@ const formatGrowth = (value: number) => {
   return value >= 0 ? `+${formatted}` : `-${formatted}`;
 };
 
+function MetricCardSkeleton() {
+  return (
+    <div className="space-y-3">
+      <Skeleton className="h-8 w-32" />
+      <Skeleton className="h-4 w-40" />
+    </div>
+  );
+}
+
+const formatStudioType = (studio: StudioResponse) => {
+  const rawType = studio.studio_type ?? studio.screen_type ?? studio.format ?? studio.type;
+
+  if (rawType === null || rawType === undefined || rawType === "") {
+    return "-";
+  }
+
+  if (typeof rawType === "number") {
+    return `${rawType}D`;
+  }
+
+  return String(rawType);
+};
+
 function StatCard({
   title,
   value,
   subtitle,
+  loading = false,
   icon: Icon,
 }: {
   title: string;
   value: string;
   subtitle?: string;
+  loading?: boolean;
   icon: ComponentType<{ className?: string }>;
 }) {
+  const subtitleClassName =
+    subtitle === undefined
+      ? "text-xs text-muted-foreground"
+      : subtitle.startsWith("+")
+        ? "text-xs text-green-600"
+        : subtitle.startsWith("-")
+          ? "text-xs text-red-600"
+          : "text-xs text-muted-foreground";
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        {subtitle ? <p className="text-xs text-muted-foreground">{subtitle}</p> : null}
+        {loading ? (
+          <MetricCardSkeleton />
+        ) : (
+          <>
+            <div className="text-2xl font-bold">{value}</div>
+            {subtitle ? <p className={subtitleClassName}>{subtitle}</p> : null}
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -108,6 +163,7 @@ function StatCard({
 
 export default function CityDetailPage() {
   const params = useParams<{ city: string }>();
+  const searchParams = useSearchParams();
   const city = decodeURIComponent(params.city);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +175,32 @@ export default function CityDetailPage() {
     trends: null,
     occupancy: null,
   });
+  const [expandedCinemaIds, setExpandedCinemaIds] = useState<string[]>([]);
+  const [studioDetails, setStudioDetails] = useState<Record<string, StudioResponse[]>>({});
+  const [studioLoading, setStudioLoading] = useState<Record<string, boolean>>({});
+  const [studioErrors, setStudioErrors] = useState<Record<string, string>>({});
+  const [studioMetrics, setStudioMetrics] = useState<Record<string, StudioMetricSummary>>({});
+  const [studioMetricsLoading, setStudioMetricsLoading] = useState<Record<string, boolean>>({});
+  const [studioMetricsErrors, setStudioMetricsErrors] = useState<Record<string, string>>({});
+  const dateQuery = useMemo<Pick<DashboardQuery, "start_date" | "end_date">>(() => {
+    const start_date = searchParams.get("start_date") ?? undefined;
+    const end_date = searchParams.get("end_date") ?? undefined;
+
+    return {
+      start_date,
+      end_date,
+    };
+  }, [searchParams]);
+
+  useEffect(() => {
+    setExpandedCinemaIds([]);
+    setStudioDetails({});
+    setStudioLoading({});
+    setStudioErrors({});
+    setStudioMetrics({});
+    setStudioMetricsLoading({});
+    setStudioMetricsErrors({});
+  }, [city, dateQuery.end_date, dateQuery.start_date]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,12 +210,12 @@ export default function CityDetailPage() {
       setError(null);
 
       const results = await Promise.allSettled([
-        getDashboardSummary({ city }),
-        getCinemaBreakdown({ city }),
-        getMovieStats({ city }),
-        getTopMovies({ city }),
-        getTrendStats({ city }),
-        getOccupancyStats({ city }),
+        getDashboardSummary({ city, ...dateQuery }),
+        getCinemaBreakdown({ city, ...dateQuery }),
+        getMovieStats({ city, ...dateQuery }),
+        getTopMovies({ city, ...dateQuery }),
+        getTrendStats({ city, ...dateQuery }),
+        getOccupancyStats({ city, ...dateQuery }),
       ]);
 
       if (cancelled) return;
@@ -160,7 +242,7 @@ export default function CityDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [city]);
+  }, [city, dateQuery]);
 
   const salesChartData = useMemo(
     () =>
@@ -184,6 +266,107 @@ export default function CityDetailPage() {
   const cinemaRows = data.cinemas?.breakdown ?? [];
   const topMovies = data.topMovies.slice(0, 10);
   const growth = data.summary?.data.growth;
+
+  const loadStudioMetrics = async (studios: StudioResponse[]) => {
+    const studiosToLoad = studios.filter((studio) => {
+      const studioId = studio.studio_id ?? studio.id;
+      return studioId && !studioMetrics[studioId] && !studioMetricsLoading[studioId];
+    });
+
+    if (studiosToLoad.length === 0) {
+      return;
+    }
+
+    setStudioMetricsLoading((current) => {
+      const next = { ...current };
+      studiosToLoad.forEach((studio) => {
+        const studioId = studio.studio_id ?? studio.id;
+        if (studioId) next[studioId] = true;
+      });
+      return next;
+    });
+
+    const results = await Promise.allSettled(
+      studiosToLoad.map(async (studio) => {
+        const studioId = studio.studio_id ?? studio.id;
+        if (!studioId) {
+          throw new Error("Studio ID tidak tersedia.");
+        }
+
+        const summary = await getDashboardSummary({
+          city,
+          studio_id: studioId,
+          ...dateQuery,
+        });
+
+        return {
+          studioId,
+          metrics: {
+            totalTickets: summary.data.total_tickets,
+            revenue: summary.data.revenue,
+            occupancy: summary.data.occupancy,
+          },
+        };
+      })
+    );
+
+    const nextMetrics: Record<string, StudioMetricSummary> = {};
+    const nextErrors: Record<string, string> = {};
+    const nextLoading: Record<string, boolean> = {};
+
+    results.forEach((result, index) => {
+      const studioId = studiosToLoad[index].studio_id ?? studiosToLoad[index].id;
+      if (!studioId) return;
+
+      nextLoading[studioId] = false;
+
+      if (result.status === "fulfilled") {
+        nextMetrics[studioId] = result.value.metrics;
+        nextErrors[studioId] = "";
+      } else {
+        nextErrors[studioId] =
+          result.reason instanceof Error
+            ? result.reason.message
+            : "Gagal memuat metrik studio.";
+      }
+    });
+
+    setStudioMetrics((current) => ({ ...current, ...nextMetrics }));
+    setStudioMetricsErrors((current) => ({ ...current, ...nextErrors }));
+    setStudioMetricsLoading((current) => ({ ...current, ...nextLoading }));
+  };
+
+  const toggleCinemaStudios = async (cinemaId: string) => {
+    const isOpen = expandedCinemaIds.includes(cinemaId);
+
+    if (isOpen) {
+      setExpandedCinemaIds((current) => current.filter((id) => id !== cinemaId));
+      return;
+    }
+
+    setExpandedCinemaIds((current) => [...current, cinemaId]);
+
+    if (studioDetails[cinemaId] || studioLoading[cinemaId]) {
+      return;
+    }
+
+    setStudioLoading((current) => ({ ...current, [cinemaId]: true }));
+    setStudioErrors((current) => ({ ...current, [cinemaId]: "" }));
+
+    try {
+      const studios = await getCinemaStudios(cinemaId);
+      setStudioDetails((current) => ({ ...current, [cinemaId]: studios }));
+      await loadStudioMetrics(studios);
+    } catch (reason) {
+      setStudioErrors((current) => ({
+        ...current,
+        [cinemaId]:
+          reason instanceof Error ? reason.message : "Gagal memuat detail studio.",
+      }));
+    } finally {
+      setStudioLoading((current) => ({ ...current, [cinemaId]: false }));
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -212,16 +395,25 @@ export default function CityDetailPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          title="Total Revenue"
-          value={data.summary ? formatCurrency(data.summary.data.revenue) : "--"}
-          subtitle={growth?.revenue !== undefined ? `${formatGrowth(growth.revenue)} vs previous period` : undefined}
-          icon={DollarSign}
-        />
-        <StatCard
           title="Tiket Terjual"
           value={data.summary ? data.summary.data.total_tickets.toLocaleString("id-ID") : "--"}
           subtitle={growth?.tickets !== undefined ? `${formatGrowth(growth.tickets)} vs previous period` : undefined}
+          loading={loading}
           icon={Ticket}
+        />
+        <StatCard
+          title="Total Revenue"
+          value={data.summary ? formatCurrency(data.summary.data.revenue) : "--"}
+          subtitle={growth?.revenue !== undefined ? `${formatGrowth(growth.revenue)} vs previous period` : undefined}
+          loading={loading}
+          icon={DollarSign}
+        />
+        <StatCard
+          title="Jumlah Bioskop"
+          value={data.cinemas ? String(data.cinemas.summary.total_cinemas) : "--"}
+          subtitle="Bioskop yang terdaftar di kota ini"
+          loading={loading}
+          icon={Building2}
         />
         <StatCard
           title="Rata-rata Okupansi"
@@ -231,13 +423,8 @@ export default function CityDetailPage() {
               ? `${formatGrowth(growth.avg_occupancy)} vs previous period`
               : undefined
           }
+          loading={loading}
           icon={Users}
-        />
-        <StatCard
-          title="Jumlah Bioskop"
-          value={data.cinemas ? String(data.cinemas.summary.total_cinemas) : "--"}
-          subtitle="Bioskop yang terdaftar di kota ini"
-          icon={Building2}
         />
       </div>
 
@@ -267,6 +454,7 @@ export default function CityDetailPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-14 text-center">Detail</TableHead>
                     <TableHead>Bioskop</TableHead>
                     <TableHead>Kota</TableHead>
                     <TableHead className="text-right">Tiket</TableHead>
@@ -276,25 +464,152 @@ export default function CityDetailPage() {
                 </TableHeader>
                 <TableBody>
                   {cinemaRows.length > 0 ? (
-                    cinemaRows.map((cinema) => (
-                      <TableRow key={cinema.cinema_id}>
-                        <TableCell>
-                          <div className="font-medium">{cinema.cinema_name}</div>
-                          <div className="text-xs text-muted-foreground">{cinema.address}</div>
-                        </TableCell>
-                        <TableCell>{cinema.city}</TableCell>
-                        <TableCell className="text-right">
-                          {cinema.metrics.total_tickets.toLocaleString("id-ID")}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {formatCurrency(cinema.metrics.total_revenue)}
-                        </TableCell>
-                        <TableCell className="text-right">{cinema.metrics.active_movies}</TableCell>
-                      </TableRow>
-                    ))
+                    cinemaRows.map((cinema) => {
+                      const isExpanded = expandedCinemaIds.includes(cinema.cinema_id);
+                      const studios = studioDetails[cinema.cinema_id] ?? [];
+
+                      return (
+                        <Fragment key={cinema.cinema_id}>
+                          <TableRow key={cinema.cinema_id}>
+                            <TableCell className="text-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-lg"
+                                onClick={() => void toggleCinemaStudios(cinema.cinema_id)}
+                                aria-label={`Lihat detail studio ${cinema.cinema_name}`}
+                              >
+                                {isExpanded ? (
+                                  <ChevronUp className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">{cinema.cinema_name}</div>
+                              <div className="text-xs text-muted-foreground">{cinema.address}</div>
+                            </TableCell>
+                            <TableCell>{cinema.city}</TableCell>
+                            <TableCell className="text-right">
+                              {cinema.metrics.total_tickets.toLocaleString("id-ID")}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(cinema.metrics.total_revenue)}
+                            </TableCell>
+                            <TableCell className="text-right">{cinema.metrics.active_movies}</TableCell>
+                          </TableRow>
+
+                          {isExpanded ? (
+                            <TableRow className="bg-muted/20">
+                              <TableCell colSpan={6} className="px-6 py-4">
+                                <div className="rounded-xl border border-border bg-background p-4">
+                                  <div className="mb-3 flex items-center justify-between">
+                                    <p className="text-sm font-semibold text-foreground">
+                                      Detail Studio
+                                    </p>
+                                    <Badge variant="outline">
+                                      {studioLoading[cinema.cinema_id]
+                                        ? "Loading..."
+                                        : `${studios.length} studio`}
+                                    </Badge>
+                                  </div>
+
+                                  {studioLoading[cinema.cinema_id] ? (
+                                    <p className="text-sm text-muted-foreground">
+                                      Memuat detail studio...
+                                    </p>
+                                  ) : studioErrors[cinema.cinema_id] ? (
+                                    <p className="text-sm text-amber-700">
+                                      {studioErrors[cinema.cinema_id]}
+                                    </p>
+                                  ) : studios.length > 0 ? (
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                      {studios.map((studio, index) => (
+                                        <div
+                                          key={studio.studio_id ?? studio.id ?? `${cinema.cinema_id}-${index}`}
+                                          className="rounded-xl border border-border bg-muted/10 p-3"
+                                        >
+                                          <p className="font-medium text-foreground">
+                                            {studio.studio_name ?? studio.name ?? `Studio ${index + 1}`}
+                                          </p>
+                                          <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                                            <p>
+                                              Capacity:{" "}
+                                              {(studio.total_capacity ?? studio.capacity ?? 0).toLocaleString("id-ID")}
+                                            </p>
+                                            <p>
+                                              Type: {formatStudioType(studio)}
+                                            </p>
+                                          </div>
+
+                                          {(() => {
+                                            const studioId = studio.studio_id ?? studio.id;
+                                            const metrics = studioId ? studioMetrics[studioId] : undefined;
+                                            const metricsLoading = studioId ? studioMetricsLoading[studioId] : false;
+                                            const metricsError = studioId ? studioMetricsErrors[studioId] : "";
+
+                                            if (metricsLoading) {
+                                              return (
+                                                <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
+                                                  <p>Memuat metrik studio...</p>
+                                                </div>
+                                              );
+                                            }
+
+                                            if (metricsError) {
+                                              return (
+                                                <div className="mt-3 text-sm text-amber-700">
+                                                  {metricsError}
+                                                </div>
+                                              );
+                                            }
+
+                                            if (!metrics) {
+                                              return null;
+                                            }
+
+                                            return (
+                                              <div className="mt-3 grid gap-2 rounded-lg bg-muted/30 p-3 text-sm md:grid-cols-3">
+                                                <div>
+                                                  <p className="text-xs text-muted-foreground">Tickets</p>
+                                                  <p className="font-semibold text-foreground">
+                                                    {metrics.totalTickets.toLocaleString("id-ID")}
+                                                  </p>
+                                                </div>
+                                                <div>
+                                                  <p className="text-xs text-muted-foreground">Revenue</p>
+                                                  <p className="font-semibold text-foreground">
+                                                    {formatCurrency(metrics.revenue)}
+                                                  </p>
+                                                </div>
+                                                <div>
+                                                  <p className="text-xs text-muted-foreground">Occupancy</p>
+                                                  <p className="font-semibold text-foreground">
+                                                    {metrics.occupancy.toFixed(1)}%
+                                                  </p>
+                                                </div>
+                                              </div>
+                                            );
+                                          })()}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-muted-foreground">
+                                      Belum ada data studio untuk bioskop ini.
+                                    </p>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center text-muted-foreground">
                         {loading ? "Loading..." : "Belum ada data bioskop untuk kota ini."}
                       </TableCell>
                     </TableRow>

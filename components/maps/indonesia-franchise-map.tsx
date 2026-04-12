@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import type { DashboardQuery } from "@/lib/cinetrack-api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MapPinned } from "lucide-react";
@@ -13,12 +14,23 @@ type CitySummaryItem = {
   nonActiveNodes: number;
   coordinates: [number, number]; // [lng, lat]
   occupancy: number;
+  totalTickets: number;
+  revenue: number;
 };
+
+const formatCompactCurrency = (value: number) =>
+  new Intl.NumberFormat("id-ID", {
+    notation: "compact",
+    compactDisplay: "short",
+    maximumFractionDigits: 1,
+  }).format(value);
 
 export default function IndonesiaFranchiseMap({
   citySummary,
+  query,
 }: {
   citySummary: CitySummaryItem[];
+  query?: Pick<DashboardQuery, "start_date" | "end_date">;
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -69,12 +81,17 @@ export default function IndonesiaFranchiseMap({
         })
           .addTo(map)
           .bindTooltip(`
-            <div style="min-width: 160px;">
-              <strong>${city.name}</strong><br/>
-              Total nodes: ${city.totalNodes}<br/>
-              Active: ${city.activeNodes}<br/>
-              Non-active: ${city.nonActiveNodes}<br/>
-              Avg occupancy: ${city.occupancy.toFixed(1)}%
+            <div style="min-width: 220px; padding: 4px 2px;">
+              <div style="font-size: 14px; font-weight: 700; margin-bottom: 8px;">${city.name}</div>
+              <div style="display: grid; gap: 4px; font-size: 12px; line-height: 1.4;">
+                <div><span style="color:#71717a;">Active Franchise:</span> <strong>${city.activeNodes}/${city.totalNodes}</strong></div>
+                <div><span style="color:#71717a;">Total Tickets:</span> <strong>${city.totalTickets.toLocaleString("id-ID")}</strong></div>
+                <div><span style="color:#71717a;">Revenue:</span> <strong>Rp ${formatCompactCurrency(city.revenue)}</strong></div>
+                <div><span style="color:#71717a;">Avg Occupancy:</span> <strong>${city.occupancy.toFixed(1)}%</strong></div>
+              </div>
+              <div style="margin-top: 10px; font-size: 11px; color: #2563eb; font-weight: 600;">
+                Click for the detail
+              </div>
             </div>
           `, {
             direction: "top",
@@ -82,7 +99,22 @@ export default function IndonesiaFranchiseMap({
             opacity: 0.95,
           })
           .on("click", () => {
-            router.push(`/dashboard/cities/${encodeURIComponent(city.name)}`);
+            const params = new URLSearchParams();
+
+            if (query?.start_date) {
+              params.set("start_date", query.start_date);
+            }
+
+            if (query?.end_date) {
+              params.set("end_date", query.end_date);
+            }
+
+            const queryString = params.toString();
+            const href = queryString
+              ? `/dashboard/cities/${encodeURIComponent(city.name)}?${queryString}`
+              : `/dashboard/cities/${encodeURIComponent(city.name)}`;
+
+            router.push(href);
           });
       });
 
@@ -100,7 +132,7 @@ export default function IndonesiaFranchiseMap({
         mapRef.current = null;
       }
     };
-  }, [citySummary, router]);
+  }, [citySummary, query?.end_date, query?.start_date, router]);
 
   return (
     <Card className="h-full">

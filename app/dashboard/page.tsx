@@ -291,19 +291,23 @@ export default function DashboardPage() {
     const grouped = data.cinemas.breakdown.reduce((acc, cinema) => {
       const coordinates = cityCoordinates[cinema.city] ?? [106.8456, -6.2088];
 
-      if (!acc[cinema.city]) {
-        acc[cinema.city] = {
-          name: cinema.city,
-          totalNodes: 0,
-          activeNodes: 0,
-          nonActiveNodes: 0,
-          occupancy: 0,
-          occupancyCount: 0,
-          coordinates,
-        };
-      }
+        if (!acc[cinema.city]) {
+          acc[cinema.city] = {
+            name: cinema.city,
+            totalNodes: 0,
+            activeNodes: 0,
+            nonActiveNodes: 0,
+            occupancy: 0,
+            occupancyCount: 0,
+            totalTickets: 0,
+            revenue: 0,
+            coordinates,
+          };
+        }
 
-      acc[cinema.city].totalNodes += 1;
+        acc[cinema.city].totalNodes += 1;
+        acc[cinema.city].totalTickets += cinema.metrics.total_tickets;
+        acc[cinema.city].revenue += cinema.metrics.total_revenue;
 
       if (cinema.metrics.active_studios > 0) {
         acc[cinema.city].activeNodes += 1;
@@ -321,6 +325,8 @@ export default function DashboardPage() {
       nonActiveNodes: number;
       occupancy: number;
       occupancyCount: number;
+      totalTickets: number;
+      revenue: number;
       coordinates: [number, number];
     }>);
 
@@ -331,6 +337,8 @@ export default function DashboardPage() {
       nonActiveNodes: item.nonActiveNodes,
       coordinates: item.coordinates,
       occupancy: item.occupancyCount > 0 ? item.occupancy / item.occupancyCount : 0,
+      totalTickets: item.totalTickets,
+      revenue: item.revenue,
     }));
   }, [data.cinemas, data.summary]);
 
@@ -641,7 +649,13 @@ export default function DashboardPage() {
       <Card>
         <CardContent className="px-0 pb-0">
           {mapSummary.length > 0 ? (
-            <IndonesiaFranchiseMap citySummary={mapSummary} />
+            <IndonesiaFranchiseMap
+              citySummary={mapSummary}
+              query={{
+                start_date: query.start_date,
+                end_date: query.end_date,
+              }}
+            />
           ) : (
             <div className="px-6 pb-6">
               <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-16 text-center text-sm text-muted-foreground">
@@ -655,7 +669,7 @@ export default function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3">
           <CardHeader>
-            <CardTitle>Top 10 Best-Selling Movies</CardTitle>
+            <CardTitle>Top Best-Selling Movies</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
@@ -796,7 +810,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
                   <RefreshCw className="h-4 w-4 text-muted-foreground" />
-                  <span>Last Updated</span>
+                  <span>Last Database Updated</span>
                 </div>
                 <span className="text-right font-medium">
                   {data.health?.last_data_in

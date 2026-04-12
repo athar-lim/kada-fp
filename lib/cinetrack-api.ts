@@ -7,6 +7,7 @@ const API_BASE_URL =
 export type DashboardQuery = {
   city?: string;
   cinema_id?: string;
+  studio_id?: string;
   start_date?: string;
   end_date?: string;
 };
@@ -180,12 +181,32 @@ export type HealthResponse = {
   tickets_last_hour: number;
 };
 
+export type StudioResponse = {
+  studio_id?: string;
+  id?: string;
+  studio_name?: string;
+  name?: string;
+  cinema_id: string;
+  total_capacity?: number;
+  capacity?: number;
+  studio_type?: string | number;
+  screen_type?: string | number;
+  format?: string | number;
+  type?: string | number;
+};
+
 type ApiEnvelope<T> = {
   success?: boolean;
   data: T;
   meta?: {
     period?: string;
     scope?: string;
+    pagination?: {
+      page: number;
+      limit: number;
+      total: number;
+      total_pages: number;
+    };
     filters?: Record<string, unknown>;
     [key: string]: unknown;
   };
@@ -299,7 +320,7 @@ export function getMovieStats(query?: DashboardQuery) {
 }
 
 export function getTopMovies(query?: DashboardQuery) {
-  return fetchJson<TopMovie[]>("/movie", {
+  return fetchJson<TopMovie[]>("/movies/rankings", {
     ...query,
     top10: "true",
   });
@@ -307,4 +328,35 @@ export function getTopMovies(query?: DashboardQuery) {
 
 export function getSystemHealth() {
   return fetchJson<HealthResponse>("/system/health");
+}
+
+export async function getCinemaStudios(cinemaId: string) {
+  const firstPage = await fetchJson<ApiEnvelope<StudioResponse[]>>("/studios", {
+    cinema_id: cinemaId,
+    page: "1",
+    limit: "100",
+  }, {
+    unwrapEnvelope: false,
+  });
+
+  const items = [...firstPage.data];
+  const totalPages = Number(firstPage.meta?.pagination?.total_pages ?? 1);
+
+  if (totalPages <= 1) {
+    return items;
+  }
+
+  const extraPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      fetchJson<ApiEnvelope<StudioResponse[]>>("/studios", {
+        cinema_id: cinemaId,
+        page: String(index + 2),
+        limit: "100",
+      }, {
+        unwrapEnvelope: false,
+      }).then((payload) => payload.data)
+    )
+  );
+
+  return items.concat(...extraPages);
 }
