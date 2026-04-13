@@ -49,11 +49,13 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  getCinemaBreakdown,
+  getCinemaPerformanceBreakdown,
   getDashboardSummary,
+  getLatestAiInsight,
   getOccupancyStats,
   getSystemHealth,
   getTopMovies,
+  type AiInsightResponse,
   type CinemaBreakdownResponse,
   type DashboardQuery,
   type HealthResponse,
@@ -68,6 +70,7 @@ type DashboardPayload = {
   occupancy: OccupancyResponse | null;
   topMovies: TopMovie[] | null;
   health: HealthResponse | null;
+  insight: AiInsightResponse | null;
 };
 
 type DashboardErrors = Partial<Record<keyof DashboardPayload, string>>;
@@ -123,6 +126,14 @@ const formatGrowthLabel = (value: number) => {
 };
 
 const formatQueryDate = (date: Date) => format(date, "yyyy-MM-dd");
+
+function getDefaultDateRange(): DateRange {
+  const today = new Date();
+  return {
+    from: today,
+    to: today,
+  };
+}
 
 function buildQuery(
   selectedCity: string,
@@ -181,13 +192,14 @@ function MetricCardSkeleton() {
 export default function DashboardPage() {
   const [selectedCity, setSelectedCity] = useState("all");
   const [selectedCinema, setSelectedCinema] = useState("all");
-  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>();
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>(getDefaultDateRange);
   const [data, setData] = useState<DashboardPayload>({
     summary: null,
     cinemas: null,
     occupancy: null,
     topMovies: null,
     health: null,
+    insight: null,
   });
   const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
@@ -208,10 +220,11 @@ export default function DashboardPage() {
 
       const results = await Promise.allSettled([
         getDashboardSummary(query),
-        getCinemaBreakdown(query),
+        getCinemaPerformanceBreakdown(query),
         getOccupancyStats(query),
         getTopMovies(query),
         getSystemHealth(),
+        getLatestAiInsight(),
       ]);
 
       if (cancelled) return;
@@ -222,6 +235,7 @@ export default function DashboardPage() {
         occupancy: results[2].status === "fulfilled" ? results[2].value : null,
         topMovies: results[3].status === "fulfilled" ? results[3].value : null,
         health: results[4].status === "fulfilled" ? results[4].value : null,
+        insight: results[5].status === "fulfilled" ? results[5].value : null,
       });
 
       setErrors({
@@ -244,6 +258,10 @@ export default function DashboardPage() {
         health:
           results[4].status === "rejected"
             ? getErrorMessage(results[4].reason, "Failed to load system health.")
+            : undefined,
+        insight:
+          results[5].status === "rejected"
+            ? getErrorMessage(results[5].reason, "Failed to load AI insight.")
             : undefined,
       });
 
@@ -414,6 +432,29 @@ export default function DashboardPage() {
 
   const topMovies = data.topMovies?.slice(0, 10) ?? [];
   const hasAnyError = Object.values(errors).some(Boolean);
+  const cinemaMetricTotals = useMemo(() => {
+    if (!data.cinemas) {
+      return {
+        totalTickets: 0,
+        totalRevenue: 0,
+        activeCinemas: 0,
+        totalCinemas: 0,
+      };
+    }
+
+    return {
+      totalTickets: data.cinemas.breakdown.reduce(
+        (sum, item) => sum + item.metrics.total_tickets,
+        0
+      ),
+      totalRevenue: data.cinemas.breakdown.reduce(
+        (sum, item) => sum + item.metrics.total_revenue,
+        0
+      ),
+      activeCinemas: data.cinemas.summary.active_cinemas,
+      totalCinemas: data.cinemas.summary.total_cinemas,
+    };
+  }, [data.cinemas]);
   const ticketGrowth = data.summary?.data.growth?.tickets;
   const revenueGrowth = data.summary?.data.growth?.revenue;
   const avgOccupancyGrowth = data.summary?.data.growth?.avg_occupancy;
@@ -485,6 +526,7 @@ export default function DashboardPage() {
             {errors.topMovies ? <p>Top movies: {errors.topMovies}</p> : null}
             {errors.occupancy ? <p>Occupancy: {errors.occupancy}</p> : null}
             {errors.health ? <p>System health: {errors.health}</p> : null}
+            {errors.insight ? <p>Insight: {errors.insight}</p> : null}
           </CardContent>
         </Card>
       ) : null}
@@ -503,7 +545,9 @@ export default function DashboardPage() {
             ) : (
               <>
                 <div className="text-2xl font-bold">
-                  {data.summary ? data.summary.data.total_tickets.toLocaleString("id-ID") : "--"}
+                  {data.cinemas
+                    ? cinemaMetricTotals.totalTickets.toLocaleString("id-ID")
+                    : "--"}
                 </div>
                 <p
                   className={
@@ -536,7 +580,9 @@ export default function DashboardPage() {
             ) : (
               <>
                 <div className="text-2xl font-bold">
-                  {data.summary ? formatCompactCurrency(data.summary.data.revenue) : "--"}
+                  {data.cinemas
+                    ? formatCompactCurrency(cinemaMetricTotals.totalRevenue)
+                    : "--"}
                 </div>
                 <p
                   className={
@@ -569,22 +615,22 @@ export default function DashboardPage() {
             ) : (
               <>
                 <div className="text-2xl font-bold">
-                  {data.summary
-                    ? `${data.summary.data.cinema_aktif} / ${data.summary.data.cinema_tersedia}`
+                  {data.cinemas
+                    ? `${cinemaMetricTotals.activeCinemas} / ${cinemaMetricTotals.totalCinemas}`
                     : "--"}
                 </div>
                 <div className="space-y-2">
                   <Progress
                     value={
-                      data.summary && data.summary.data.cinema_tersedia > 0
-                        ? (data.summary.data.cinema_aktif / data.summary.data.cinema_tersedia) * 100
+                      data.cinemas && cinemaMetricTotals.totalCinemas > 0
+                        ? (cinemaMetricTotals.activeCinemas / cinemaMetricTotals.totalCinemas) * 100
                         : 0
                     }
                     className="h-1"
                   />
                   <p className="text-xs text-muted-foreground">
-                    {data.summary && data.summary.data.cinema_tersedia > 0
-                      ? `${((data.summary.data.cinema_aktif / data.summary.data.cinema_tersedia) * 100).toFixed(0)}% Active Franchises`
+                    {data.cinemas && cinemaMetricTotals.totalCinemas > 0
+                      ? `${((cinemaMetricTotals.activeCinemas / cinemaMetricTotals.totalCinemas) * 100).toFixed(0)}% Active Franchises`
                       : "Active Franchises out of Total Available"}
                   </p>
                 </div>
@@ -632,7 +678,11 @@ export default function DashboardPage() {
           <div className="flex w-full items-center justify-between gap-2">
             <div>
               <CardTitle>Operational Intelligence Insights</CardTitle>
-              <p className="text-sm text-gray-500 py-2">Based on data from [Date] to [Date]</p>
+              <p className="py-2 text-sm text-gray-500">
+                {data.insight?.period?.label
+                  ? `Based on data from ${formatPeriod(data.insight.period.label)}`
+                  : "Latest AI-generated operational insight"}
+              </p>
             </div>
             <Button variant="ghost" size="sm" disabled className="shrink-0">
               Lihat Semua
@@ -640,9 +690,77 @@ export default function DashboardPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-            Coming Soon
-          </div>
+          {loading ? (
+            <div className="space-y-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-6">
+              <Skeleton className="h-5 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-11/12" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ) : data.insight ? (
+            <div className="space-y-4 rounded-2xl border border-border bg-muted/20 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-base font-semibold text-foreground">
+                    {data.insight.cards?.headline ?? data.insight.analysis?.title ?? "Operational insight"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {data.insight.cards?.summary ??
+                      data.insight.analysis?.description ??
+                      "Insight terbaru belum memiliki ringkasan."}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {data.insight.cards?.impact_level || data.insight.analysis?.impact_level ? (
+                    <Badge variant="outline" className="capitalize">
+                      {data.insight.cards?.impact_level ?? data.insight.analysis?.impact_level}
+                    </Badge>
+                  ) : null}
+                  {data.insight.cards?.category || data.insight.analysis?.category ? (
+                    <Badge variant="outline" className="capitalize">
+                      {data.insight.cards?.category ?? data.insight.analysis?.category}
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background/80 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Recommendation
+                </p>
+                <p className="mt-2 text-sm text-foreground">
+                  {data.insight.cards?.recommendation ??
+                    data.insight.analysis?.recommendation ??
+                    "Belum ada rekomendasi yang tersedia."}
+                </p>
+              </div>
+
+              {((data.insight.analysis?.action_items?.length ?? 0) > 0 ||
+                (data.insight.action_items?.length ?? 0) > 0) ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Action Items
+                  </p>
+                  <div className="space-y-2">
+                    {(data.insight.analysis?.action_items ?? data.insight.action_items ?? [])
+                      .slice(0, 3)
+                      .map((item, index) => (
+                        <div
+                          key={`${index}-${item}`}
+                          className="rounded-xl border border-border bg-background/70 px-3 py-2 text-sm text-foreground"
+                        >
+                          {item}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+              Insight belum tersedia
+            </div>
+          )}
         </CardContent>
       </Card>
 
