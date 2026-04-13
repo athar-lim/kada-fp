@@ -180,6 +180,18 @@ function formatPeriod(periodString?: string) {
   return `${start} - ${end}`;
 }
 
+function formatInsightScope(insight: AiInsightResponse | null) {
+  if (!insight) return "Scope: Global";
+
+  const scope = insight.scope;
+  if (scope.cinema_name) return `Scope: ${scope.cinema_name}`;
+  if (scope.studio_name) return `Scope: ${scope.studio_name}`;
+  if (scope.city) return `Scope: ${scope.city}`;
+  if (scope.label) return `Scope: ${scope.label}`;
+
+  return "Scope: Global";
+}
+
 function MetricCardSkeleton() {
   return (
     <div className="space-y-3">
@@ -224,7 +236,7 @@ export default function DashboardPage() {
         getOccupancyStats(query),
         getTopMovies(query),
         getSystemHealth(),
-        getLatestAiInsight(),
+        getLatestAiInsight(query),
       ]);
 
       if (cancelled) return;
@@ -701,6 +713,9 @@ export default function DashboardPage() {
             <div className="space-y-4 rounded-2xl border border-border bg-muted/20 p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {formatInsightScope(data.insight)}
+                  </p>
                   <h3 className="text-base font-semibold text-foreground">
                     {data.insight.cards?.headline ?? data.insight.analysis?.title ?? "Operational insight"}
                   </h3>

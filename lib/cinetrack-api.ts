@@ -2,8 +2,8 @@
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL ??
-  "https://capstone-project-api-cinetrack.vercel.app";
   // "http://127.0.0.1:8000";
+  "https://capstone-project-api-cinetrack.vercel.app";
 
 export type DashboardQuery = {
   city?: string;
@@ -489,8 +489,8 @@ export function getSystemHealth() {
   return fetchJson<HealthResponse>("/system/health");
 }
 
-export function getLatestAiInsight() {
-  return fetchJson<AiInsightResponse>("/ai/insights/latest");
+export function getLatestAiInsight(query?: DashboardQuery) {
+  return fetchJson<AiInsightResponse>("/ai/insights/latest", query);
 }
 
 export async function getCinemaStudios(cinemaId: string) {

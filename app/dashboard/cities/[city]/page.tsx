@@ -217,6 +217,9 @@ export default function CityDetailPage() {
   const [studioDetails, setStudioDetails] = useState<Record<string, StudioResponse[]>>({});
   const [studioLoading, setStudioLoading] = useState<Record<string, boolean>>({});
   const [studioErrors, setStudioErrors] = useState<Record<string, string>>({});
+  const [expandedStudioIds, setExpandedStudioIds] = useState<string[]>([]);
+  const [expandedStudioMovieIds, setExpandedStudioMovieIds] = useState<string[]>([]);
+  const [expandedStudioScheduleIds, setExpandedStudioScheduleIds] = useState<string[]>([]);
   const [studioMetrics, setStudioMetrics] = useState<Record<string, StudioMetricSummary>>({});
   const [studioMetricsLoading, setStudioMetricsLoading] = useState<Record<string, boolean>>({});
   const [studioMetricsErrors, setStudioMetricsErrors] = useState<Record<string, string>>({});
@@ -227,6 +230,7 @@ export default function CityDetailPage() {
   const [studioMovieRows, setStudioMovieRows] = useState<Record<string, StudioMovieBreakdownRow[]>>({});
   const [studioBreakdownLoading, setStudioBreakdownLoading] = useState<Record<string, boolean>>({});
   const [studioBreakdownErrors, setStudioBreakdownErrors] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState("cinema");
   const dateQuery = useMemo<Pick<DashboardQuery, "start_date" | "end_date">>(() => {
     const fallback = getDefaultDateQuery();
     const start_date = searchParams.get("start_date") ?? fallback.start_date;
@@ -243,6 +247,9 @@ export default function CityDetailPage() {
     setStudioDetails({});
     setStudioLoading({});
     setStudioErrors({});
+    setExpandedStudioIds([]);
+    setExpandedStudioMovieIds([]);
+    setExpandedStudioScheduleIds([]);
     setStudioMetrics({});
     setStudioMetricsLoading({});
     setStudioMetricsErrors({});
@@ -356,10 +363,34 @@ export default function CityDetailPage() {
     };
   }, [data.cinemas]);
 
+  const fetchScheduleDetailsInBatches = async (
+    schedules: Array<{ schedule_id: string }>,
+    batchSize = 20
+  ) => {
+    const results: ScheduleDetailResponse[] = [];
+
+    for (let index = 0; index < schedules.length; index += batchSize) {
+      const chunk = schedules.slice(index, index + batchSize);
+      const settled = await Promise.allSettled(
+        chunk.map((schedule) => getScheduleDetail(schedule.schedule_id))
+      );
+
+      results.push(
+        ...settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []))
+      );
+    }
+
+    return results;
+  };
+
   useEffect(() => {
     let cancelled = false;
 
     const loadCityScheduleBreakdown = async () => {
+      if (activeTab !== "sales") {
+        return;
+      }
+
       if (!data.cinemas || cinemaRows.length === 0) {
         setCityScheduleRows([]);
         return;
@@ -401,14 +432,11 @@ export default function CityDetailPage() {
           }
         });
         const scheduleList = schedulesByCinema.flat();
-        const detailResults = await Promise.allSettled(
-          scheduleList.map((schedule) => getScheduleDetail(schedule.schedule_id))
-        );
+        const scheduleDetails = await fetchScheduleDetailsInBatches(scheduleList);
 
         if (cancelled) return;
 
-        const rows = detailResults
-          .flatMap((result) => (result.status === "fulfilled" ? [result.value] : []))
+        const rows = scheduleDetails
           .map((detail) => ({
             scheduleId: detail.schedule_id,
             movieId: detail.movie_id,
@@ -445,7 +473,7 @@ export default function CityDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [cinemaRows, data.cinemas, dateQuery.end_date, dateQuery.start_date]);
+  }, [activeTab, cinemaRows, data.cinemas, dateQuery.end_date, dateQuery.start_date]);
 
   const loadStudioMetrics = async (studios: StudioResponse[]) => {
     const studiosToLoad = studios.filter((studio) => {
@@ -672,6 +700,30 @@ export default function CityDetailPage() {
     }
   };
 
+  const toggleStudioDetail = (studioId: string) => {
+    setExpandedStudioIds((current) =>
+      current.includes(studioId)
+        ? current.filter((id) => id !== studioId)
+        : [...current, studioId]
+    );
+  };
+
+  const toggleStudioMovieDetail = (studioId: string) => {
+    setExpandedStudioMovieIds((current) =>
+      current.includes(studioId)
+        ? current.filter((id) => id !== studioId)
+        : [...current, studioId]
+    );
+  };
+
+  const toggleStudioScheduleDetail = (studioId: string) => {
+    setExpandedStudioScheduleIds((current) =>
+      current.includes(studioId)
+        ? current.filter((id) => id !== studioId)
+        : [...current, studioId]
+    );
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4">
@@ -732,7 +784,7 @@ export default function CityDetailPage() {
         />
       </div>
 
-      <Tabs defaultValue="cinema" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="h-auto flex-wrap rounded-2xl bg-muted/60 p-2">
           <TabsTrigger value="cinema" className="gap-2 rounded-xl px-4 py-2">
             <Building2 className="h-4 w-4" />
@@ -828,171 +880,233 @@ export default function CityDetailPage() {
                                       {studioErrors[cinema.cinema_id]}
                                     </p>
                                   ) : studios.length > 0 ? (
-                                    <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="space-y-3">
                                       {studios.map((studio, index) => (
-                                        <div
-                                          key={studio.studio_id ?? studio.id ?? `${cinema.cinema_id}-${index}`}
-                                          className="rounded-xl border border-border bg-muted/10 p-3"
-                                        >
-                                          <p className="font-medium text-foreground">
-                                            {studio.studio_name ?? studio.name ?? `Studio ${index + 1}`}
-                                          </p>
-                                          <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                                            <p>
-                                              Capacity:{" "}
-                                              {(studio.total_capacity ?? studio.capacity ?? 0).toLocaleString("id-ID")}
-                                            </p>
-                                            <p>
-                                              Type: {formatStudioType(studio)}
-                                            </p>
-                                          </div>
+                                        (() => {
+                                          const studioId = studio.studio_id ?? studio.id;
+                                          const isStudioExpanded = studioId
+                                            ? expandedStudioIds.includes(studioId)
+                                            : false;
+                                          const isMovieExpanded = studioId
+                                            ? expandedStudioMovieIds.includes(studioId)
+                                            : false;
+                                          const isScheduleExpanded = studioId
+                                            ? expandedStudioScheduleIds.includes(studioId)
+                                            : false;
+                                          const metrics = studioId ? studioMetrics[studioId] : undefined;
+                                          const metricsLoading = studioId ? studioMetricsLoading[studioId] : false;
+                                          const metricsError = studioId ? studioMetricsErrors[studioId] : "";
+                                          const breakdownLoading = studioId ? studioBreakdownLoading[studioId] : false;
+                                          const breakdownError = studioId ? studioBreakdownErrors[studioId] : "";
+                                          const movieRows = studioId ? studioMovieRows[studioId] ?? [] : [];
+                                          const scheduleRows = studioId ? studioScheduleRows[studioId] ?? [] : [];
 
-                                          {(() => {
-                                            const studioId = studio.studio_id ?? studio.id;
-                                            const metrics = studioId ? studioMetrics[studioId] : undefined;
-                                            const metricsLoading = studioId ? studioMetricsLoading[studioId] : false;
-                                            const metricsError = studioId ? studioMetricsErrors[studioId] : "";
-                                            const breakdownLoading = studioId ? studioBreakdownLoading[studioId] : false;
-                                            const breakdownError = studioId ? studioBreakdownErrors[studioId] : "";
-                                            const movieRows = studioId ? studioMovieRows[studioId] ?? [] : [];
-                                            const scheduleRows = studioId ? studioScheduleRows[studioId] ?? [] : [];
-
-                                            if (metricsLoading) {
-                                              return (
-                                                <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
-                                                  <p>Memuat metrik studio...</p>
-                                                </div>
-                                              );
-                                            }
-
-                                            if (metricsError) {
-                                              return (
-                                                <div className="mt-3 text-sm text-amber-700">
-                                                  {metricsError}
-                                                </div>
-                                              );
-                                            }
-
-                                            if (!metrics) {
-                                              return null;
-                                            }
-
-                                            return (
-                                              <div className="mt-3 space-y-3">
-                                                <div className="grid gap-2 rounded-lg bg-muted/30 p-3 text-sm md:grid-cols-3">
-                                                  <div>
-                                                    <p className="text-xs text-muted-foreground">Tickets</p>
-                                                    <p className="font-semibold text-foreground">
-                                                      {metrics.totalTickets.toLocaleString("id-ID")}
-                                                    </p>
-                                                  </div>
-                                                  <div>
-                                                    <p className="text-xs text-muted-foreground">Revenue</p>
-                                                    <p className="font-semibold text-foreground">
-                                                      {formatCurrency(metrics.revenue)}
-                                                    </p>
-                                                  </div>
-                                                  <div>
-                                                    <p className="text-xs text-muted-foreground">Occupancy</p>
-                                                    <p className="font-semibold text-foreground">
-                                                      {metrics.occupancy.toFixed(1)}%
-                                                    </p>
-                                                  </div>
-                                                </div>
-
-                                                {breakdownLoading ? (
-                                                  <p className="text-sm text-muted-foreground">
-                                                    Memuat breakdown studio...
+                                          return (
+                                            <div
+                                              key={studioId ?? `${cinema.cinema_id}-${index}`}
+                                              className="rounded-xl border border-border bg-muted/10 p-3"
+                                            >
+                                              <button
+                                                type="button"
+                                                className="flex w-full items-start justify-between gap-3 text-left"
+                                                onClick={() => {
+                                                  if (studioId) {
+                                                    toggleStudioDetail(studioId);
+                                                  }
+                                                }}
+                                              >
+                                                <div>
+                                                  <p className="font-medium text-foreground">
+                                                    {studio.studio_name ?? studio.name ?? `Studio ${index + 1}`}
                                                   </p>
-                                                ) : breakdownError ? (
-                                                  <p className="text-sm text-amber-700">{breakdownError}</p>
-                                                ) : (
-                                                  <div className="grid gap-3">
-                                                    <div className="rounded-lg border border-border p-3">
-                                                      <p className="mb-2 text-sm font-semibold text-foreground">
-                                                        Per Movie
-                                                      </p>
-                                                      {movieRows.length > 0 ? (
-                                                        <Table>
-                                                          <TableHeader>
-                                                            <TableRow>
-                                                              <TableHead>Movie</TableHead>
-                                                              <TableHead className="text-right">Schedules</TableHead>
-                                                              <TableHead className="text-right">Tiket</TableHead>
-                                                              <TableHead className="text-right">Occupancy</TableHead>
-                                                            </TableRow>
-                                                          </TableHeader>
-                                                          <TableBody>
-                                                            {movieRows.map((row) => (
-                                                              <TableRow key={row.movieId}>
-                                                                <TableCell className="font-medium">
-                                                                  {row.movieTitle}
-                                                                </TableCell>
-                                                                <TableCell className="text-right">
-                                                                  {row.totalSchedules}
-                                                                </TableCell>
-                                                                <TableCell className="text-right">
-                                                                  {row.ticketsSold.toLocaleString("id-ID")}
-                                                                </TableCell>
-                                                                <TableCell className="text-right">
-                                                                  {row.occupancy.toFixed(1)}%
-                                                                </TableCell>
-                                                              </TableRow>
-                                                            ))}
-                                                          </TableBody>
-                                                        </Table>
-                                                      ) : (
-                                                        <p className="text-sm text-muted-foreground">
-                                                          Belum ada breakdown movie.
-                                                        </p>
-                                                      )}
-                                                    </div>
-
-                                                    <div className="rounded-lg border border-border p-3">
-                                                      <p className="mb-2 text-sm font-semibold text-foreground">
-                                                        Per Schedule
-                                                      </p>
-                                                      {scheduleRows.length > 0 ? (
-                                                        <Table>
-                                                          <TableHeader>
-                                                            <TableRow>
-                                                              <TableHead>Movie</TableHead>
-                                                              <TableHead>Schedule</TableHead>
-                                                              <TableHead className="text-right">Tiket</TableHead>
-                                                              <TableHead className="text-right">Occupancy</TableHead>
-                                                            </TableRow>
-                                                          </TableHeader>
-                                                          <TableBody>
-                                                            {scheduleRows.map((row) => (
-                                                              <TableRow key={row.scheduleId}>
-                                                                <TableCell className="font-medium">
-                                                                  {row.movieTitle}
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                  {row.showDate} • {row.startTime}
-                                                                </TableCell>
-                                                                <TableCell className="text-right">
-                                                                  {row.ticketsSold.toLocaleString("id-ID")}
-                                                                </TableCell>
-                                                                <TableCell className="text-right">
-                                                                  {row.occupancy.toFixed(1)}%
-                                                                </TableCell>
-                                                              </TableRow>
-                                                            ))}
-                                                          </TableBody>
-                                                        </Table>
-                                                      ) : (
-                                                        <p className="text-sm text-muted-foreground">
-                                                          Belum ada breakdown schedule.
-                                                        </p>
-                                                      )}
-                                                    </div>
+                                                  <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+                                                    <p>
+                                                      Capacity:{" "}
+                                                      {(studio.total_capacity ?? studio.capacity ?? 0).toLocaleString("id-ID")}
+                                                    </p>
+                                                    <p>Type: {formatStudioType(studio)}</p>
                                                   </div>
-                                                )}
-                                              </div>
-                                            );
-                                          })()}
-                                        </div>
+                                                </div>
+                                                {studioId ? (
+                                                  isStudioExpanded ? (
+                                                    <ChevronUp className="mt-1 h-4 w-4 text-muted-foreground" />
+                                                  ) : (
+                                                    <ChevronDown className="mt-1 h-4 w-4 text-muted-foreground" />
+                                                  )
+                                                ) : null}
+                                              </button>
+
+                                              {isStudioExpanded ? (
+                                                <>
+                                                  {metricsLoading ? (
+                                                    <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
+                                                      <p>Memuat metrik studio...</p>
+                                                    </div>
+                                                  ) : metricsError ? (
+                                                    <div className="mt-3 text-sm text-amber-700">
+                                                      {metricsError}
+                                                    </div>
+                                                  ) : metrics ? (
+                                                    <div className="mt-3 space-y-3">
+                                                      <div className="grid gap-2 rounded-lg bg-muted/30 p-3 text-sm md:grid-cols-3">
+                                                        <div>
+                                                          <p className="text-xs text-muted-foreground">Tickets</p>
+                                                          <p className="font-semibold text-foreground">
+                                                            {metrics.totalTickets.toLocaleString("id-ID")}
+                                                          </p>
+                                                        </div>
+                                                        <div>
+                                                          <p className="text-xs text-muted-foreground">Revenue</p>
+                                                          <p className="font-semibold text-foreground">
+                                                            {formatCurrency(metrics.revenue)}
+                                                          </p>
+                                                        </div>
+                                                        <div>
+                                                          <p className="text-xs text-muted-foreground">Occupancy</p>
+                                                          <p className="font-semibold text-foreground">
+                                                            {metrics.occupancy.toFixed(1)}%
+                                                          </p>
+                                                        </div>
+                                                      </div>
+
+                                                      {breakdownLoading ? (
+                                                        <p className="text-sm text-muted-foreground">
+                                                          Memuat breakdown studio...
+                                                        </p>
+                                                      ) : breakdownError ? (
+                                                        <p className="text-sm text-amber-700">{breakdownError}</p>
+                                                      ) : (
+                                                        <div className="space-y-3">
+                                                          <div className="rounded-lg border border-border p-3">
+                                                            <button
+                                                              type="button"
+                                                              className="flex w-full items-center justify-between gap-3 text-left"
+                                                              onClick={() => {
+                                                                if (studioId) {
+                                                                  toggleStudioMovieDetail(studioId);
+                                                                }
+                                                              }}
+                                                            >
+                                                              <p className="text-sm font-semibold text-foreground">
+                                                                Movie
+                                                              </p>
+                                                              {studioId ? (
+                                                                isMovieExpanded ? (
+                                                                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                                                ) : (
+                                                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                                                )
+                                                              ) : null}
+                                                            </button>
+                                                            {isMovieExpanded ? (
+                                                              <div className="mt-3">
+                                                                {movieRows.length > 0 ? (
+                                                                  <Table>
+                                                                    <TableHeader>
+                                                                      <TableRow>
+                                                                        <TableHead>Movie</TableHead>
+                                                                        <TableHead className="text-right">Schedules</TableHead>
+                                                                        <TableHead className="text-right">Tiket</TableHead>
+                                                                        <TableHead className="text-right">Occupancy</TableHead>
+                                                                      </TableRow>
+                                                                    </TableHeader>
+                                                                    <TableBody>
+                                                                      {movieRows.map((row) => (
+                                                                        <TableRow key={row.movieId}>
+                                                                          <TableCell className="font-medium">
+                                                                            {row.movieTitle}
+                                                                          </TableCell>
+                                                                          <TableCell className="text-right">
+                                                                            {row.totalSchedules}
+                                                                          </TableCell>
+                                                                          <TableCell className="text-right">
+                                                                            {row.ticketsSold.toLocaleString("id-ID")}
+                                                                          </TableCell>
+                                                                          <TableCell className="text-right">
+                                                                            {row.occupancy.toFixed(1)}%
+                                                                          </TableCell>
+                                                                        </TableRow>
+                                                                      ))}
+                                                                    </TableBody>
+                                                                  </Table>
+                                                                ) : (
+                                                                  <p className="text-sm text-muted-foreground">
+                                                                    Belum ada breakdown movie.
+                                                                  </p>
+                                                                )}
+                                                              </div>
+                                                            ) : null}
+                                                          </div>
+
+                                                          <div className="rounded-lg border border-border p-3">
+                                                            <button
+                                                              type="button"
+                                                              className="flex w-full items-center justify-between gap-3 text-left"
+                                                              onClick={() => {
+                                                                if (studioId) {
+                                                                  toggleStudioScheduleDetail(studioId);
+                                                                }
+                                                              }}
+                                                            >
+                                                              <p className="text-sm font-semibold text-foreground">
+                                                                Schedule
+                                                              </p>
+                                                              {studioId ? (
+                                                                isScheduleExpanded ? (
+                                                                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                                                ) : (
+                                                                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                                                )
+                                                              ) : null}
+                                                            </button>
+                                                            {isScheduleExpanded ? (
+                                                              <div className="mt-3">
+                                                                {scheduleRows.length > 0 ? (
+                                                                  <Table>
+                                                                    <TableHeader>
+                                                                      <TableRow>
+                                                                        <TableHead>Movie</TableHead>
+                                                                        <TableHead>Schedule</TableHead>
+                                                                        <TableHead className="text-right">Tiket</TableHead>
+                                                                        <TableHead className="text-right">Occupancy</TableHead>
+                                                                      </TableRow>
+                                                                    </TableHeader>
+                                                                    <TableBody>
+                                                                      {scheduleRows.map((row) => (
+                                                                        <TableRow key={row.scheduleId}>
+                                                                          <TableCell className="font-medium">
+                                                                            {row.movieTitle}
+                                                                          </TableCell>
+                                                                          <TableCell>
+                                                                            {row.showDate} • {row.startTime}
+                                                                          </TableCell>
+                                                                          <TableCell className="text-right">
+                                                                            {row.ticketsSold.toLocaleString("id-ID")}
+                                                                          </TableCell>
+                                                                          <TableCell className="text-right">
+                                                                            {row.occupancy.toFixed(1)}%
+                                                                          </TableCell>
+                                                                        </TableRow>
+                                                                      ))}
+                                                                    </TableBody>
+                                                                  </Table>
+                                                                ) : (
+                                                                  <p className="text-sm text-muted-foreground">
+                                                                    Belum ada breakdown schedule.
+                                                                  </p>
+                                                                )}
+                                                              </div>
+                                                            ) : null}
+                                                          </div>
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  ) : null}
+                                                </>
+                                              ) : null}
+                                            </div>
+                                          );
+                                        })()
                                       ))}
                                     </div>
                                   ) : (
@@ -1162,56 +1276,6 @@ export default function CityDetailPage() {
               </CardContent>
             </Card>
           </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Schedule Breakdown</CardTitle>
-              <CardDescription>Schedule dengan performa tiket tertinggi di {city}.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {citySchedulesLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              ) : citySchedulesError ? (
-                <p className="text-sm text-amber-700">{citySchedulesError}</p>
-              ) : cityScheduleRows.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Movie</TableHead>
-                      <TableHead>Schedule</TableHead>
-                      <TableHead className="text-right">Tiket</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cityScheduleRows.map((row) => (
-                      <TableRow key={row.scheduleId}>
-                        <TableCell>
-                          <div className="font-medium">{row.movieTitle}</div>
-                          <div className="text-xs text-muted-foreground">{row.studioId}</div>
-                        </TableCell>
-                        <TableCell>
-                          {row.showDate} • {row.startTime}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {row.ticketsSold.toLocaleString("id-ID")}
-                        </TableCell>
-                        <TableCell className="text-right">{formatPercent(row.occupancy)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Belum ada breakdown schedule untuk periode ini.
-                </p>
-              )}
-            </CardContent>
-          </Card>
 
           <Card>
             <CardHeader>
