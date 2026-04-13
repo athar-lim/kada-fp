@@ -2,7 +2,8 @@
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL ??
-  "https://capstone-project-api-cinetrack.vercel.app";
+  // "https://capstone-project-api-cinetrack.vercel.app";
+  "http://127.0.0.1:8000";
 
 export type DashboardQuery = {
   city?: string;
@@ -69,7 +70,7 @@ export type CinemaBreakdownResponse = {
     cinema_id: string;
     cinema_name: string;
     city: string;
-    address: string;
+    address?: string;
     metrics: {
       total_tickets: number;
       total_revenue: number;
@@ -175,10 +176,55 @@ export type TopMovie = {
   revenue: number;
 };
 
+export type MovieCatalogItem = {
+  movie_id: string;
+  title: string;
+  genre: string[];
+  rating_usia: string;
+  duration_min: number;
+};
+
 export type HealthResponse = {
   status: string;
   last_data_in: string;
   tickets_last_hour: number;
+};
+
+export type AiInsightResponse = {
+  scope: {
+    type: string;
+    value: string | null;
+    label: string;
+    city: string | null;
+    cinema_id: string | null;
+    cinema_name: string | null;
+    studio_id: string | null;
+    studio_name: string | null;
+  };
+  period: {
+    start_date: string;
+    end_date: string;
+    label: string;
+  };
+  generated_at: string;
+  ai_source: string;
+  ai_model: string;
+  cards?: {
+    headline?: string;
+    summary?: string;
+    recommendation?: string;
+    impact_level?: string;
+    category?: string;
+  };
+  analysis?: {
+    title?: string;
+    description?: string;
+    recommendation?: string;
+    action_items?: string[];
+    impact_level?: string;
+    category?: string;
+  };
+  action_items?: string[];
 };
 
 export type StudioResponse = {
@@ -193,6 +239,35 @@ export type StudioResponse = {
   screen_type?: string | number;
   format?: string | number;
   type?: string | number;
+};
+
+export type ScheduleListItem = {
+  schedule_id: string;
+  movie_id: string;
+  studio_id: string;
+  cinema_id: string;
+  show_date: string;
+  start_time: string;
+  price: number;
+  status: string;
+  actual_time?: string | null;
+  delay_minutes?: number | null;
+  is_mock_timing?: boolean;
+};
+
+export type ScheduleDetailResponse = ScheduleListItem & {
+  tickets_sold: number;
+  revenue: number;
+};
+
+export type ScheduleQuery = {
+  movie_id?: string;
+  cinema_id?: string;
+  studio_id?: string;
+  show_date?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: string;
 };
 
 type ApiEnvelope<T> = {
@@ -296,6 +371,10 @@ export function getCinemaBreakdown(query?: DashboardQuery) {
   return fetchJson<CinemaBreakdownResponse>("/cinemas", query);
 }
 
+export function getCinemaPerformanceBreakdown(query?: DashboardQuery) {
+  return fetchJson<CinemaBreakdownResponse>("/stats/cinema", query);
+}
+
 export function getTrendStats(query?: DashboardQuery) {
   return fetchJson<TrendsResponse>("/stats/trends", query);
 }
@@ -326,8 +405,92 @@ export function getTopMovies(query?: DashboardQuery) {
   });
 }
 
+export async function getMoviesCatalog() {
+  const firstPage = await fetchJson<ApiEnvelope<MovieCatalogItem[]>>(
+    "/movies",
+    {
+      page: "1",
+      limit: "100",
+    },
+    {
+      unwrapEnvelope: false,
+    }
+  );
+
+  const items = [...firstPage.data];
+  const totalPages = Number(firstPage.meta?.pagination?.total_pages ?? 1);
+
+  if (totalPages <= 1) {
+    return items;
+  }
+
+  const extraPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      fetchJson<ApiEnvelope<MovieCatalogItem[]>>(
+        "/movies",
+        {
+          page: String(index + 2),
+          limit: "100",
+        },
+        {
+          unwrapEnvelope: false,
+        }
+      ).then((payload) => payload.data)
+    )
+  );
+
+  return items.concat(...extraPages);
+}
+
+export async function getSchedules(query?: ScheduleQuery) {
+  const firstPage = await fetchJson<ApiEnvelope<ScheduleListItem[]>>(
+    "/schedules",
+    {
+      ...query,
+      page: "1",
+      limit: "100",
+    },
+    {
+      unwrapEnvelope: false,
+    }
+  );
+
+  const items = [...firstPage.data];
+  const totalPages = Number(firstPage.meta?.pagination?.total_pages ?? 1);
+
+  if (totalPages <= 1) {
+    return items;
+  }
+
+  const extraPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      fetchJson<ApiEnvelope<ScheduleListItem[]>>(
+        "/schedules",
+        {
+          ...query,
+          page: String(index + 2),
+          limit: "100",
+        },
+        {
+          unwrapEnvelope: false,
+        }
+      ).then((payload) => payload.data)
+    )
+  );
+
+  return items.concat(...extraPages);
+}
+
+export function getScheduleDetail(scheduleId: string) {
+  return fetchJson<ScheduleDetailResponse>(`/schedules/${scheduleId}`);
+}
+
 export function getSystemHealth() {
   return fetchJson<HealthResponse>("/system/health");
+}
+
+export function getLatestAiInsight() {
+  return fetchJson<AiInsightResponse>("/ai/insights/latest");
 }
 
 export async function getCinemaStudios(cinemaId: string) {

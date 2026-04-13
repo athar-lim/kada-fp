@@ -50,15 +50,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getCinemaBreakdown,
   getCinemaStudios,
+  getCinemaPerformanceBreakdown,
   getDashboardSummary,
+  getMoviesCatalog,
   getMovieStats,
   getOccupancyStats,
+  getScheduleDetail,
+  getSchedules,
   getTopMovies,
   getTrendStats,
   type CinemaBreakdownResponse,
   type DashboardQuery,
+  type MovieCatalogItem,
   type MovieStatsResponse,
   type OccupancyResponse,
+  type ScheduleDetailResponse,
   type SummaryResponse,
   type StudioResponse,
   type TopMovie,
@@ -80,6 +86,27 @@ type StudioMetricSummary = {
   occupancy: number;
 };
 
+type ScheduleBreakdownRow = {
+  scheduleId: string;
+  movieId: string;
+  movieTitle: string;
+  studioId: string;
+  showDate: string;
+  startTime: string;
+  ticketsSold: number;
+  occupancy: number;
+  price: number;
+  status: string;
+};
+
+type StudioMovieBreakdownRow = {
+  movieId: string;
+  movieTitle: string;
+  ticketsSold: number;
+  totalSchedules: number;
+  occupancy: number;
+};
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("id-ID", {
     style: "currency",
@@ -93,6 +120,17 @@ const formatGrowth = (value: number) => {
   const formatted = `${Math.abs(value).toFixed(2)}%`;
   return value >= 0 ? `+${formatted}` : `-${formatted}`;
 };
+
+const formatQueryDate = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+function getDefaultDateQuery() {
+  const today = new Date();
+  return {
+    start_date: formatQueryDate(today),
+    end_date: formatQueryDate(today),
+  };
+}
 
 function MetricCardSkeleton() {
   return (
@@ -182,9 +220,17 @@ export default function CityDetailPage() {
   const [studioMetrics, setStudioMetrics] = useState<Record<string, StudioMetricSummary>>({});
   const [studioMetricsLoading, setStudioMetricsLoading] = useState<Record<string, boolean>>({});
   const [studioMetricsErrors, setStudioMetricsErrors] = useState<Record<string, string>>({});
+  const [cityScheduleRows, setCityScheduleRows] = useState<ScheduleBreakdownRow[]>([]);
+  const [citySchedulesLoading, setCitySchedulesLoading] = useState(false);
+  const [citySchedulesError, setCitySchedulesError] = useState<string>("");
+  const [studioScheduleRows, setStudioScheduleRows] = useState<Record<string, ScheduleBreakdownRow[]>>({});
+  const [studioMovieRows, setStudioMovieRows] = useState<Record<string, StudioMovieBreakdownRow[]>>({});
+  const [studioBreakdownLoading, setStudioBreakdownLoading] = useState<Record<string, boolean>>({});
+  const [studioBreakdownErrors, setStudioBreakdownErrors] = useState<Record<string, string>>({});
   const dateQuery = useMemo<Pick<DashboardQuery, "start_date" | "end_date">>(() => {
-    const start_date = searchParams.get("start_date") ?? undefined;
-    const end_date = searchParams.get("end_date") ?? undefined;
+    const fallback = getDefaultDateQuery();
+    const start_date = searchParams.get("start_date") ?? fallback.start_date;
+    const end_date = searchParams.get("end_date") ?? fallback.end_date;
 
     return {
       start_date,
@@ -200,6 +246,13 @@ export default function CityDetailPage() {
     setStudioMetrics({});
     setStudioMetricsLoading({});
     setStudioMetricsErrors({});
+    setCityScheduleRows([]);
+    setCitySchedulesLoading(false);
+    setCitySchedulesError("");
+    setStudioScheduleRows({});
+    setStudioMovieRows({});
+    setStudioBreakdownLoading({});
+    setStudioBreakdownErrors({});
   }, [city, dateQuery.end_date, dateQuery.start_date]);
 
   useEffect(() => {
@@ -211,7 +264,8 @@ export default function CityDetailPage() {
 
       const results = await Promise.allSettled([
         getDashboardSummary({ city, ...dateQuery }),
-        getCinemaBreakdown({ city, ...dateQuery }),
+        getCinemaPerformanceBreakdown({ city, ...dateQuery }),
+        getCinemaBreakdown({ city }),
         getMovieStats({ city, ...dateQuery }),
         getTopMovies({ city, ...dateQuery }),
         getTrendStats({ city, ...dateQuery }),
@@ -220,13 +274,27 @@ export default function CityDetailPage() {
 
       if (cancelled) return;
 
+      const cinemaMetrics = results[1].status === "fulfilled" ? results[1].value : null;
+      const cinemaDirectory = results[2].status === "fulfilled" ? results[2].value : null;
+      const addressByCinemaId = Object.fromEntries(
+        (cinemaDirectory?.breakdown ?? []).map((item) => [item.cinema_id, item.address ?? ""])
+      );
+
       setData({
         summary: results[0].status === "fulfilled" ? results[0].value : null,
-        cinemas: results[1].status === "fulfilled" ? results[1].value : null,
-        movieStats: results[2].status === "fulfilled" ? results[2].value : null,
-        topMovies: results[3].status === "fulfilled" ? results[3].value : [],
-        trends: results[4].status === "fulfilled" ? results[4].value : null,
-        occupancy: results[5].status === "fulfilled" ? results[5].value : null,
+        cinemas: cinemaMetrics
+          ? {
+              ...cinemaMetrics,
+              breakdown: cinemaMetrics.breakdown.map((item) => ({
+                ...item,
+                address: addressByCinemaId[item.cinema_id] ?? item.address,
+              })),
+            }
+          : null,
+        movieStats: results[3].status === "fulfilled" ? results[3].value : null,
+        topMovies: results[4].status === "fulfilled" ? results[4].value : [],
+        trends: results[5].status === "fulfilled" ? results[5].value : null,
+        occupancy: results[6].status === "fulfilled" ? results[6].value : null,
       });
 
       const rejected = results.find((result) => result.status === "rejected");
@@ -242,7 +310,7 @@ export default function CityDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [city, dateQuery]);
+  }, [city, dateQuery.end_date, dateQuery.start_date]);
 
   const salesChartData = useMemo(
     () =>
@@ -263,9 +331,121 @@ export default function CityDetailPage() {
     [data.occupancy]
   );
 
-  const cinemaRows = data.cinemas?.breakdown ?? [];
+  const cinemaRows = useMemo(() => data.cinemas?.breakdown ?? [], [data.cinemas]);
   const topMovies = data.topMovies.slice(0, 10);
   const growth = data.summary?.data.growth;
+  const cinemaMetricTotals = useMemo(() => {
+    if (!data.cinemas) {
+      return {
+        totalTickets: 0,
+        totalRevenue: 0,
+        totalCinemas: 0,
+      };
+    }
+
+    return {
+      totalTickets: data.cinemas.breakdown.reduce(
+        (sum, item) => sum + item.metrics.total_tickets,
+        0
+      ),
+      totalRevenue: data.cinemas.breakdown.reduce(
+        (sum, item) => sum + item.metrics.total_revenue,
+        0
+      ),
+      totalCinemas: data.cinemas.summary.total_cinemas,
+    };
+  }, [data.cinemas]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCityScheduleBreakdown = async () => {
+      if (!data.cinemas || cinemaRows.length === 0) {
+        setCityScheduleRows([]);
+        return;
+      }
+
+      setCitySchedulesLoading(true);
+      setCitySchedulesError("");
+
+      try {
+        const [moviesCatalog, schedulesByCinema, studiosByCinema] = await Promise.all([
+          getMoviesCatalog(),
+          Promise.all(
+            cinemaRows.map((cinema) =>
+              getSchedules({
+                cinema_id: cinema.cinema_id,
+                start_date: dateQuery.start_date,
+                end_date: dateQuery.end_date,
+              })
+            )
+          ),
+          Promise.all(
+            cinemaRows.map((cinema) =>
+              getCinemaStudios(cinema.cinema_id).catch(() => [] as StudioResponse[])
+            )
+          ),
+        ]);
+
+        if (cancelled) return;
+
+        const movieMap = new Map<string, MovieCatalogItem>(
+          moviesCatalog.map((movie) => [movie.movie_id, movie])
+        );
+        const studioCapacityMap = new Map<string, number>();
+        studiosByCinema.flat().forEach((studio) => {
+          const studioId = studio.studio_id ?? studio.id;
+          const capacity = Number(studio.capacity ?? 0);
+          if (studioId) {
+            studioCapacityMap.set(studioId, Number.isFinite(capacity) ? capacity : 0);
+          }
+        });
+        const scheduleList = schedulesByCinema.flat();
+        const detailResults = await Promise.allSettled(
+          scheduleList.map((schedule) => getScheduleDetail(schedule.schedule_id))
+        );
+
+        if (cancelled) return;
+
+        const rows = detailResults
+          .flatMap((result) => (result.status === "fulfilled" ? [result.value] : []))
+          .map((detail) => ({
+            scheduleId: detail.schedule_id,
+            movieId: detail.movie_id,
+            movieTitle: movieMap.get(detail.movie_id)?.title ?? detail.movie_id,
+            studioId: detail.studio_id,
+            showDate: detail.show_date,
+            startTime: detail.start_time,
+            ticketsSold: detail.tickets_sold,
+            occupancy:
+              (studioCapacityMap.get(detail.studio_id) ?? 0) > 0
+                ? (detail.tickets_sold / (studioCapacityMap.get(detail.studio_id) ?? 1)) * 100
+                : 0,
+            price: detail.price,
+            status: detail.status,
+          }))
+          .sort((a, b) => b.ticketsSold - a.ticketsSold)
+          .slice(0, 10);
+
+        setCityScheduleRows(rows);
+      } catch (reason) {
+        if (cancelled) return;
+        setCitySchedulesError(
+          reason instanceof Error ? reason.message : "Gagal memuat breakdown schedule kota."
+        );
+      } finally {
+        if (!cancelled) {
+          setCitySchedulesLoading(false);
+        }
+      }
+    };
+
+    void loadCityScheduleBreakdown();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cinemaRows, data.cinemas, dateQuery.end_date, dateQuery.start_date]);
 
   const loadStudioMetrics = async (studios: StudioResponse[]) => {
     const studiosToLoad = studios.filter((studio) => {
@@ -336,6 +516,130 @@ export default function CityDetailPage() {
     setStudioMetricsLoading((current) => ({ ...current, ...nextLoading }));
   };
 
+  const loadStudioBreakdowns = async (studios: StudioResponse[]) => {
+    const studioIdsToLoad = studios
+      .map((studio) => studio.studio_id ?? studio.id)
+      .filter((studioId): studioId is string => Boolean(studioId))
+      .filter((studioId) => !studioScheduleRows[studioId] && !studioBreakdownLoading[studioId]);
+
+    if (studioIdsToLoad.length === 0) {
+      return;
+    }
+
+    setStudioBreakdownLoading((current) => {
+      const next = { ...current };
+      studioIdsToLoad.forEach((studioId) => {
+        next[studioId] = true;
+      });
+      return next;
+    });
+
+    const moviesCatalog = await getMoviesCatalog();
+    const movieMap = new Map<string, MovieCatalogItem>(
+      moviesCatalog.map((movie) => [movie.movie_id, movie])
+    );
+    const studioCapacityMap = new Map<string, number>(
+      studios
+        .map((studio) => [
+          studio.studio_id ?? studio.id,
+          studio.total_capacity ?? studio.capacity ?? 0,
+        ] as const)
+        .filter((entry): entry is [string, number] => Boolean(entry[0]))
+    );
+
+    const results = await Promise.allSettled(
+      studioIdsToLoad.map(async (studioId) => {
+        const schedules = await getSchedules({
+          studio_id: studioId,
+          start_date: dateQuery.start_date,
+          end_date: dateQuery.end_date,
+        });
+
+        const detailResults = await Promise.allSettled(
+          schedules.map((schedule) => getScheduleDetail(schedule.schedule_id))
+        );
+
+        const scheduleRows = detailResults
+          .flatMap((result) => (result.status === "fulfilled" ? [result.value] : []))
+          .map((detail: ScheduleDetailResponse) => ({
+            scheduleId: detail.schedule_id,
+            movieId: detail.movie_id,
+            movieTitle: movieMap.get(detail.movie_id)?.title ?? detail.movie_id,
+            studioId: detail.studio_id,
+            showDate: detail.show_date,
+            startTime: detail.start_time,
+            ticketsSold: detail.tickets_sold,
+            occupancy:
+              (studioCapacityMap.get(detail.studio_id) ?? 0) > 0
+                ? (detail.tickets_sold / (studioCapacityMap.get(detail.studio_id) ?? 1)) * 100
+                : 0,
+            price: detail.price,
+            status: detail.status,
+          }))
+          .sort((a, b) => b.ticketsSold - a.ticketsSold);
+
+        const movieRows = Object.values(
+          scheduleRows.reduce<Record<string, StudioMovieBreakdownRow>>((acc, row) => {
+            if (!acc[row.movieId]) {
+              acc[row.movieId] = {
+                movieId: row.movieId,
+                movieTitle: row.movieTitle,
+                ticketsSold: 0,
+                totalSchedules: 0,
+                occupancy: 0,
+              };
+            }
+
+            acc[row.movieId].ticketsSold += row.ticketsSold;
+            acc[row.movieId].totalSchedules += 1;
+            return acc;
+          }, {})
+        )
+          .map((row) => {
+            const studioCapacity = studioCapacityMap.get(studioId) ?? 0;
+            const totalCapacity = studioCapacity * row.totalSchedules;
+            return {
+              ...row,
+              occupancy: totalCapacity > 0 ? (row.ticketsSold / totalCapacity) * 100 : 0,
+            };
+          })
+          .sort((a, b) => b.ticketsSold - a.ticketsSold);
+
+        return {
+          studioId,
+          scheduleRows: scheduleRows.slice(0, 6),
+          movieRows: movieRows.slice(0, 5),
+        };
+      })
+    );
+
+    const nextScheduleRows: Record<string, ScheduleBreakdownRow[]> = {};
+    const nextMovieRows: Record<string, StudioMovieBreakdownRow[]> = {};
+    const nextErrors: Record<string, string> = {};
+    const nextLoading: Record<string, boolean> = {};
+
+    results.forEach((result, index) => {
+      const studioId = studioIdsToLoad[index];
+      nextLoading[studioId] = false;
+
+      if (result.status === "fulfilled") {
+        nextScheduleRows[studioId] = result.value.scheduleRows;
+        nextMovieRows[studioId] = result.value.movieRows;
+        nextErrors[studioId] = "";
+      } else {
+        nextErrors[studioId] =
+          result.reason instanceof Error
+            ? result.reason.message
+            : "Gagal memuat breakdown studio.";
+      }
+    });
+
+    setStudioScheduleRows((current) => ({ ...current, ...nextScheduleRows }));
+    setStudioMovieRows((current) => ({ ...current, ...nextMovieRows }));
+    setStudioBreakdownErrors((current) => ({ ...current, ...nextErrors }));
+    setStudioBreakdownLoading((current) => ({ ...current, ...nextLoading }));
+  };
+
   const toggleCinemaStudios = async (cinemaId: string) => {
     const isOpen = expandedCinemaIds.includes(cinemaId);
 
@@ -356,7 +660,7 @@ export default function CityDetailPage() {
     try {
       const studios = await getCinemaStudios(cinemaId);
       setStudioDetails((current) => ({ ...current, [cinemaId]: studios }));
-      await loadStudioMetrics(studios);
+      await Promise.all([loadStudioMetrics(studios), loadStudioBreakdowns(studios)]);
     } catch (reason) {
       setStudioErrors((current) => ({
         ...current,
@@ -393,27 +697,27 @@ export default function CityDetailPage() {
         ) : null}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Tiket Terjual"
-          value={data.summary ? data.summary.data.total_tickets.toLocaleString("id-ID") : "--"}
-          subtitle={growth?.tickets !== undefined ? `${formatGrowth(growth.tickets)} vs previous period` : undefined}
-          loading={loading}
-          icon={Ticket}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            title="Tiket Terjual"
+            value={data.cinemas ? cinemaMetricTotals.totalTickets.toLocaleString("id-ID") : "--"}
+            subtitle={growth?.tickets !== undefined ? `${formatGrowth(growth.tickets)} vs previous period` : undefined}
+            loading={loading}
+            icon={Ticket}
+          />
+          <StatCard
+            title="Total Revenue"
+            value={data.cinemas ? formatCurrency(cinemaMetricTotals.totalRevenue) : "--"}
+            subtitle={growth?.revenue !== undefined ? `${formatGrowth(growth.revenue)} vs previous period` : undefined}
+            loading={loading}
+            icon={DollarSign}
         />
-        <StatCard
-          title="Total Revenue"
-          value={data.summary ? formatCurrency(data.summary.data.revenue) : "--"}
-          subtitle={growth?.revenue !== undefined ? `${formatGrowth(growth.revenue)} vs previous period` : undefined}
-          loading={loading}
-          icon={DollarSign}
-        />
-        <StatCard
-          title="Jumlah Bioskop"
-          value={data.cinemas ? String(data.cinemas.summary.total_cinemas) : "--"}
-          subtitle="Bioskop yang terdaftar di kota ini"
-          loading={loading}
-          icon={Building2}
+          <StatCard
+            title="Jumlah Bioskop"
+            value={data.cinemas ? String(cinemaMetricTotals.totalCinemas) : "--"}
+            subtitle="Bioskop yang terdaftar di kota ini"
+            loading={loading}
+            icon={Building2}
         />
         <StatCard
           title="Rata-rata Okupansi"
@@ -488,7 +792,7 @@ export default function CityDetailPage() {
                             </TableCell>
                             <TableCell>
                               <div className="font-medium">{cinema.cinema_name}</div>
-                              <div className="text-xs text-muted-foreground">{cinema.address}</div>
+                              <div className="text-xs text-muted-foreground">{cinema.address ?? "-"}</div>
                             </TableCell>
                             <TableCell>{cinema.city}</TableCell>
                             <TableCell className="text-right">
@@ -548,6 +852,10 @@ export default function CityDetailPage() {
                                             const metrics = studioId ? studioMetrics[studioId] : undefined;
                                             const metricsLoading = studioId ? studioMetricsLoading[studioId] : false;
                                             const metricsError = studioId ? studioMetricsErrors[studioId] : "";
+                                            const breakdownLoading = studioId ? studioBreakdownLoading[studioId] : false;
+                                            const breakdownError = studioId ? studioBreakdownErrors[studioId] : "";
+                                            const movieRows = studioId ? studioMovieRows[studioId] ?? [] : [];
+                                            const scheduleRows = studioId ? studioScheduleRows[studioId] ?? [] : [];
 
                                             if (metricsLoading) {
                                               return (
@@ -570,25 +878,117 @@ export default function CityDetailPage() {
                                             }
 
                                             return (
-                                              <div className="mt-3 grid gap-2 rounded-lg bg-muted/30 p-3 text-sm md:grid-cols-3">
-                                                <div>
-                                                  <p className="text-xs text-muted-foreground">Tickets</p>
-                                                  <p className="font-semibold text-foreground">
-                                                    {metrics.totalTickets.toLocaleString("id-ID")}
-                                                  </p>
+                                              <div className="mt-3 space-y-3">
+                                                <div className="grid gap-2 rounded-lg bg-muted/30 p-3 text-sm md:grid-cols-3">
+                                                  <div>
+                                                    <p className="text-xs text-muted-foreground">Tickets</p>
+                                                    <p className="font-semibold text-foreground">
+                                                      {metrics.totalTickets.toLocaleString("id-ID")}
+                                                    </p>
+                                                  </div>
+                                                  <div>
+                                                    <p className="text-xs text-muted-foreground">Revenue</p>
+                                                    <p className="font-semibold text-foreground">
+                                                      {formatCurrency(metrics.revenue)}
+                                                    </p>
+                                                  </div>
+                                                  <div>
+                                                    <p className="text-xs text-muted-foreground">Occupancy</p>
+                                                    <p className="font-semibold text-foreground">
+                                                      {metrics.occupancy.toFixed(1)}%
+                                                    </p>
+                                                  </div>
                                                 </div>
-                                                <div>
-                                                  <p className="text-xs text-muted-foreground">Revenue</p>
-                                                  <p className="font-semibold text-foreground">
-                                                    {formatCurrency(metrics.revenue)}
+
+                                                {breakdownLoading ? (
+                                                  <p className="text-sm text-muted-foreground">
+                                                    Memuat breakdown studio...
                                                   </p>
-                                                </div>
-                                                <div>
-                                                  <p className="text-xs text-muted-foreground">Occupancy</p>
-                                                  <p className="font-semibold text-foreground">
-                                                    {metrics.occupancy.toFixed(1)}%
-                                                  </p>
-                                                </div>
+                                                ) : breakdownError ? (
+                                                  <p className="text-sm text-amber-700">{breakdownError}</p>
+                                                ) : (
+                                                  <div className="grid gap-3">
+                                                    <div className="rounded-lg border border-border p-3">
+                                                      <p className="mb-2 text-sm font-semibold text-foreground">
+                                                        Per Movie
+                                                      </p>
+                                                      {movieRows.length > 0 ? (
+                                                        <Table>
+                                                          <TableHeader>
+                                                            <TableRow>
+                                                              <TableHead>Movie</TableHead>
+                                                              <TableHead className="text-right">Schedules</TableHead>
+                                                              <TableHead className="text-right">Tiket</TableHead>
+                                                              <TableHead className="text-right">Occupancy</TableHead>
+                                                            </TableRow>
+                                                          </TableHeader>
+                                                          <TableBody>
+                                                            {movieRows.map((row) => (
+                                                              <TableRow key={row.movieId}>
+                                                                <TableCell className="font-medium">
+                                                                  {row.movieTitle}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                  {row.totalSchedules}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                  {row.ticketsSold.toLocaleString("id-ID")}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                  {row.occupancy.toFixed(1)}%
+                                                                </TableCell>
+                                                              </TableRow>
+                                                            ))}
+                                                          </TableBody>
+                                                        </Table>
+                                                      ) : (
+                                                        <p className="text-sm text-muted-foreground">
+                                                          Belum ada breakdown movie.
+                                                        </p>
+                                                      )}
+                                                    </div>
+
+                                                    <div className="rounded-lg border border-border p-3">
+                                                      <p className="mb-2 text-sm font-semibold text-foreground">
+                                                        Per Schedule
+                                                      </p>
+                                                      {scheduleRows.length > 0 ? (
+                                                        <Table>
+                                                          <TableHeader>
+                                                            <TableRow>
+                                                              <TableHead>Movie</TableHead>
+                                                              <TableHead>Schedule</TableHead>
+                                                              <TableHead className="text-right">Tiket</TableHead>
+                                                              <TableHead className="text-right">Occupancy</TableHead>
+                                                            </TableRow>
+                                                          </TableHeader>
+                                                          <TableBody>
+                                                            {scheduleRows.map((row) => (
+                                                              <TableRow key={row.scheduleId}>
+                                                                <TableCell className="font-medium">
+                                                                  {row.movieTitle}
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                  {row.showDate} • {row.startTime}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                  {row.ticketsSold.toLocaleString("id-ID")}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                  {row.occupancy.toFixed(1)}%
+                                                                </TableCell>
+                                                              </TableRow>
+                                                            ))}
+                                                          </TableBody>
+                                                        </Table>
+                                                      ) : (
+                                                        <p className="text-sm text-muted-foreground">
+                                                          Belum ada breakdown schedule.
+                                                        </p>
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                )}
                                               </div>
                                             );
                                           })()}
@@ -674,7 +1074,7 @@ export default function CityDetailPage() {
                       <TableHead>Film</TableHead>
                       <TableHead>Genre</TableHead>
                       <TableHead className="text-right">Tiket</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
+                      <TableHead className="text-right">Occupancy</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -762,6 +1162,56 @@ export default function CityDetailPage() {
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Schedule Breakdown</CardTitle>
+              <CardDescription>Schedule dengan performa tiket tertinggi di {city}.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {citySchedulesLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : citySchedulesError ? (
+                <p className="text-sm text-amber-700">{citySchedulesError}</p>
+              ) : cityScheduleRows.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Movie</TableHead>
+                      <TableHead>Schedule</TableHead>
+                      <TableHead className="text-right">Tiket</TableHead>
+                      <TableHead className="text-right">Revenue</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {cityScheduleRows.map((row) => (
+                      <TableRow key={row.scheduleId}>
+                        <TableCell>
+                          <div className="font-medium">{row.movieTitle}</div>
+                          <div className="text-xs text-muted-foreground">{row.studioId}</div>
+                        </TableCell>
+                        <TableCell>
+                          {row.showDate} • {row.startTime}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {row.ticketsSold.toLocaleString("id-ID")}
+                        </TableCell>
+                        <TableCell className="text-right">{formatPercent(row.occupancy)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Belum ada breakdown schedule untuk periode ini.
+                </p>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
