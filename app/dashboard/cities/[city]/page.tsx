@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Building2,
@@ -70,6 +70,7 @@ import {
   type TopMovie,
   type TrendsResponse,
 } from "@/lib/cinetrack-api";
+import { mergeParamsForDashboardLink } from "@/lib/dashboard-url-filters";
 
 type CityPayload = {
   summary: SummaryResponse | null;
@@ -201,8 +202,24 @@ function StatCard({
 
 export default function CityDetailPage() {
   const params = useParams<{ city: string }>();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const city = decodeURIComponent(params.city);
+  const dashboardHref = mergeParamsForDashboardLink(
+    "/dashboard",
+    new URLSearchParams(searchParams.toString()),
+    pathname
+  );
+  const filmsHref = mergeParamsForDashboardLink(
+    "/dashboard/films",
+    new URLSearchParams(searchParams.toString()),
+    pathname
+  );
+  const salesHref = mergeParamsForDashboardLink(
+    "/dashboard/sales",
+    new URLSearchParams(searchParams.toString()),
+    pathname
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<CityPayload>({
@@ -279,6 +296,29 @@ export default function CityDetailPage() {
         getOccupancyStats({ city, ...dateQuery }),
       ]);
 
+      let cinemasData = results[1].status === "fulfilled" ? results[1].value : null;
+
+      if (cinemasData && cinemasData.breakdown.length > 0 && !cancelled) {
+        const cinemaSummaries = await Promise.allSettled(
+          cinemasData.breakdown.map((cinema) =>
+            getDashboardSummary({ city, cinema_id: cinema.cinema_id, ...dateQuery })
+          )
+        );
+
+        if (!cancelled) {
+          cinemasData.breakdown.forEach((cinema, i) => {
+            const sumRes = cinemaSummaries[i];
+            if (sumRes.status === "fulfilled") {
+              cinema.metrics.total_tickets = sumRes.value.data.total_tickets;
+              cinema.metrics.total_revenue = sumRes.value.data.revenue;
+              if (sumRes.value.data.occupancy !== undefined) {
+                cinema.metrics.occupancy = sumRes.value.data.occupancy;
+              }
+            }
+          });
+        }
+      }
+
       if (cancelled) return;
 
       const cinemaMetrics = results[1].status === "fulfilled" ? results[1].value : null;
@@ -331,10 +371,20 @@ export default function CityDetailPage() {
 
   const occupancyChartData = useMemo(
     () =>
-      data.occupancy?.breakdown.map((item) => ({
-        label: item.time_group.split(" ").at(-1) ?? item.time_group,
-        occupancy: Number(item.avg_occupancy.toFixed(2)),
-      })) ?? [],
+      data.occupancy?.breakdown.map((item) => {
+        const parts = item.time_group.split(" ");
+        let label = item.time_group;
+        if (parts.length === 2) {
+          const dateParts = parts[0].split("-");
+          if (dateParts.length === 3) {
+            label = `${dateParts[2]}/${dateParts[1]} ${parts[1]}`;
+          }
+        }
+        return {
+          label,
+          occupancy: Number((item.occupancy ?? (item as any).avg_occupancy ?? 0).toFixed(2)),
+        };
+      }) ?? [],
     [data.occupancy]
   );
 
@@ -475,7 +525,7 @@ export default function CityDetailPage() {
     };
   }, [activeTab, cinemaRows, data.cinemas, dateQuery.end_date, dateQuery.start_date]);
 
-  const loadStudioMetrics = async (studios: StudioResponse[]) => {
+  const loadStudioMetrics = async (cinemaId: string, studios: StudioResponse[]) => {
     const studiosToLoad = studios.filter((studio) => {
       const studioId = studio.studio_id ?? studio.id;
       return studioId && !studioMetrics[studioId] && !studioMetricsLoading[studioId];
@@ -503,6 +553,7 @@ export default function CityDetailPage() {
 
         const summary = await getDashboardSummary({
           city,
+          cinema_id: cinemaId,
           studio_id: studioId,
           ...dateQuery,
         });
@@ -688,7 +739,7 @@ export default function CityDetailPage() {
     try {
       const studios = await getCinemaStudios(cinemaId);
       setStudioDetails((current) => ({ ...current, [cinemaId]: studios }));
-      await Promise.all([loadStudioMetrics(studios), loadStudioBreakdowns(studios)]);
+      await Promise.all([loadStudioMetrics(cinemaId, studios), loadStudioBreakdowns(studios)]);
     } catch (reason) {
       setStudioErrors((current) => ({
         ...current,
@@ -726,20 +777,39 @@ export default function CityDetailPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
         <div className="flex items-start gap-4">
-          <Link href="/dashboard">
-            <Button variant="outline" size="icon" className="rounded-2xl">
+          <Link href={dashboardHref}>
+            <Button variant="outline" size="icon" className="mt-1 h-9 w-9 shrink-0 rounded-xl">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
 
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Ringkasan Kinerja: {city}</h1>
-            <p className="text-muted-foreground">
-              Menampilkan data performa terperinci untuk kota yang dipilih.
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+              <MapPinned className="h-6 w-6 text-primary" />
+              Performa Kota: {city}
+            </h1>
+            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+              Menampilkan data performa terperinci untuk kota yang dipilih. Filter tanggal 
+              saat ini akan otomatis diterapkan jika Anda beralih ke analitik lanjutan.
             </p>
           </div>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center gap-3 pl-13 md:pl-0">
+          <Button variant="outline" className="gap-2 bg-background shadow-sm hover:bg-muted" asChild>
+            <Link href={filmsHref}>
+              <Film className="h-4 w-4 text-emerald-500" />
+              Detail Performa Film
+            </Link>
+          </Button>
+          <Button variant="outline" className="gap-2 bg-background shadow-sm hover:bg-muted" asChild>
+            <Link href={salesHref}>
+              <TrendingUp className="h-4 w-4 text-blue-500" />
+              Detail Analitik Sales
+            </Link>
+          </Button>
         </div>
 
         {error ? (

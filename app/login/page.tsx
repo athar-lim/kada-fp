@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { loginAdmin } from "@/lib/cinetrack-api";
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState("");
@@ -17,14 +18,25 @@ export default function AdminLoginPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-    if (email === "admin@example.com" && password === "admin123") {
-      alert("Admin login success");
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg("");
+
+    try {
+      const data = await loginAdmin(email, password);
+      // Simpan credentials di localStorage supaya bisa dipickup oleh cinetrack-api.ts dan firebase.ts (mock useUser)
+      localStorage.setItem("cinetrack_token", data.token);
+      localStorage.setItem("cinetrack_user", JSON.stringify(data.user));
+      
       router.push("/dashboard");
-    } else {
-      alert("Invalid admin credentials");
+    } catch (err: any) {
+      setErrorMsg(err.message || "Invalid admin credentials");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -55,8 +67,9 @@ export default function AdminLoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@example.com"
-              className="w-full rounded-xl border border-border bg-background px-4 py-3 outline-none"
+              className="w-full rounded-xl border border-border bg-background px-4 py-3 outline-none disabled:opacity-50"
               required
+              disabled={loading}
             />
           </div>
 
@@ -67,16 +80,24 @@ export default function AdminLoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password"
-              className="w-full rounded-xl border border-border bg-background px-4 py-3 outline-none"
+              className="w-full rounded-xl border border-border bg-background px-4 py-3 outline-none disabled:opacity-50"
               required
+              disabled={loading}
             />
           </div>
 
+          {errorMsg && (
+            <div className="text-sm text-red-500 font-medium">
+              {errorMsg}
+            </div>
+          )}
+
           <button
             type="submit"
-            className="w-full rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground"
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-medium text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-70"
           >
-            Sign In as Admin
+            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Sign In as Admin"}
           </button>
         </form>
       </div>
