@@ -1,16 +1,23 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { DateRange } from "react-day-picker";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription
+  CardDescription,
+  CardFooter
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
   Table,
   TableBody,
@@ -19,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Bar,
   BarChart,
@@ -27,1675 +33,835 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  Line,
-  LineChart,
-  Legend,
   Cell,
-  PieChart,
   Pie,
+  PieChart
 } from "recharts";
 import {
   Film,
   Ticket,
-  DollarSign,
-  CalendarDays,
+  Clapperboard,
+  Star,
+  TrendingUp,
+  TrendingDown,
+  Award,
+  Crown,
+  Medal,
   AlertTriangle,
-  Clock4,
+  CalendarClock,
 } from "lucide-react";
-import { format, addMinutes, startOfDay, endOfDay } from "date-fns";
-
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { format, subDays } from "date-fns";
+import { id as localeId } from "date-fns/locale";
+
 import {
-  FilmsOverviewMetrics,
-  getFilmsOverviewMetrics,
-} from "@/lib/cinetrack-films-overview";
+  getCinemaBreakdown,
+  getCities,
+  getFilmsAnalyticsBundle,
+  getSystemHealth,
+  type CinemaBreakdownResponse,
+  type FilmsAnalyticsBundlePayload,
+} from "@/lib/cinetrack-api";
+import { useDashboardUrlFilters } from "@/hooks/use-dashboard-url-filters";
 
-const cityOptions = [
-  { id: "all", name: "All Cities" },
-  { id: "jakarta", name: "Jakarta" },
-  { id: "bandung", name: "Bandung" },
-  { id: "semarang", name: "Semarang" },
-  { id: "medan", name: "Medan" },
-  { id: "palembang", name: "Palembang" },
-  { id: "makassar", name: "Makassar" },
-];
+type FilmsPayload = {
+  overview: FilmsAnalyticsBundlePayload["overview"] | null;
+  performance: FilmsAnalyticsBundlePayload["performance"] | null;
+  schedules: FilmsAnalyticsBundlePayload["schedules"] | null;
+  occupancy: FilmsAnalyticsBundlePayload["occupancy"] | null;
+  distribution: FilmsAnalyticsBundlePayload["distribution"] | null;
+  risk: FilmsAnalyticsBundlePayload["operational_risk"] | null;
+};
 
 // ===========================
-// DUMMY DATA
+// STYLE HELPERS & UTILS
 // ===========================
 
-const movies = [
-  { id: "M001", title: "Kung Fu Panda 4", genre: "Animation" },
-  { id: "M002", title: "Dune: Part Two", genre: "Action" },
-  { id: "M003", title: "Godzilla x Kong", genre: "Action" },
-  { id: "M004", title: "Exhuma", genre: "Horror" },
-  { id: "M005", title: "Siksa Kubur", genre: "Horror" },
-  { id: "M006", title: "Badarawuhi di Desa Penari", genre: "Horror" },
-  { id: "M007", title: "Civil War", genre: "Action" },
-  { id: "M010", title: "Kingdom of the Planet of the Apes", genre: "Action" },
-  { id: "M011", title: "Furiosa: A Mad Max Saga", genre: "Action" },
-  { id: "M012", title: "Inside Out 2", genre: "Animation" },
-  { id: "M013", title: "Deadpool & Wolverine", genre: "Action" },
-  { id: "M014", title: "Despicable Me 4", genre: "Animation" },
-  { id: "M015", title: "A Quiet Place: Day One", genre: "Horror" },
-  { id: "M016", title: "Twisters", genre: "Action" },
-  { id: "M017", title: "Alien: Romulus", genre: "Horror" },
-  { id: "M018", title: "Joker: Folie à Deux", genre: "Drama" },
-  { id: "M019", title: "Gladiator II", genre: "Action" },
-  { id: "M020", title: "Moana 2", genre: "Animation" },
+const formatCurrency = (value: number) => 
+  new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
+
+const GENRE_CHART_COLORS = [
+    "hsl(var(--primary))",
+    "hsl(var(--chart-2))",
+    "hsl(var(--chart-3))",
+    "hsl(var(--chart-4))",
+    "hsl(var(--chart-5))",
+    "hsl(var(--muted-foreground))",
 ];
 
-const cinemas = [
-  { id: "C001", name: "Plaza Indonesia XXI", city: "Jakarta" },
-  { id: "C002", name: "Paris Van Java CGV", city: "Bandung" },
-  { id: "C003", name: "DP Mall Cinepolis", city: "Semarang" },
-  { id: "C004", name: "Senayan City XXI", city: "Jakarta" },
-  { id: "C005", name: "Trans Studio Mall XXI", city: "Bandung" },
-];
-
-const studios = [
-  { id: "ST001", cinemaId: "C001", name: "Studio 1", capacity: 150, type: "2D" },
-  { id: "ST002", cinemaId: "C001", name: "IMAX", capacity: 200, type: "IMAX" },
-  { id: "ST003", cinemaId: "C002", name: "Studio 2", capacity: 120, type: "2D" },
-  { id: "ST004", cinemaId: "C002", name: "Premiere", capacity: 40, type: "2D" },
-  { id: "ST005", cinemaId: "C003", name: "Studio 1", capacity: 100, type: "2D" },
-  { id: "ST006", cinemaId: "C003", name: "Studio 2", capacity: 80, type: "2D" },
-  { id: "ST007", cinemaId: "C004", name: "Studio 1", capacity: 150, type: "2D" },
-  { id: "ST008", cinemaId: "C004", name: "IMAX", capacity: 200, type: "IMAX" },
-  { id: "ST009", cinemaId: "C005", name: "Studio 1", capacity: 120, type: "2D" },
-  { id: "ST010", cinemaId: "C005", name: "Studio 2", capacity: 100, type: "2D" },
-];
-
-const schedules = Array.from({ length: 93 }).map((_, i) => {
-  const date = new Date(2026, 2, 24 + (i % 6));
-  const hour = 10 + Math.floor(Math.random() * 12);
-  date.setHours(hour, Math.random() > 0.5 ? 30 : 0, 0, 0);
-
-  let status: 'On-Time' | 'Delayed' | 'Cancelled';
-  let delayMinutes = 0;
-  const rand = Math.random();
-
-  if (rand < 0.08) {
-    status = 'Cancelled';
-  } else if (rand < 0.3) {
-    status = 'Delayed';
-    delayMinutes = 15 + Math.floor(Math.random() * 30);
-  } else {
-    status = 'On-Time';
-  }
-
-  const studio = studios[i % studios.length];
-
-  return {
-    id: `SCH${i + 1}`,
-    movieId: movies[i % movies.length].id,
-    studioId: studio.id,
-    cinemaId: studio.cinemaId,
-    scheduledTime: date,
-    actualTime: status === 'Delayed' ? addMinutes(date, delayMinutes) : date,
-    status,
-    delayMinutes,
-    capacity: studio.capacity,
-  };
-});
-
-const seatCategories = [
-  { name: 'Regular', price: 35000 },
-  { name: 'VIP', price: 90000 },
-  { name: 'Sweetbox', price: 150000 },
-];
-
-const tickets = Array.from({ length: 270 }).map((_, i) => {
-  const activeSchedules = schedules.filter((s) => s.status !== 'Cancelled');
-  const schedule = activeSchedules[i % activeSchedules.length];
-
-  let seatCategory = seatCategories[0];
-  const seatCategoryRand = Math.random();
-
-  if (seatCategoryRand < 0.7) seatCategory = seatCategories[0];
-  else if (seatCategoryRand < 0.9) seatCategory = seatCategories[1];
-  else seatCategory = seatCategories[2];
-
-  return {
-    id: `T${i + 1}`,
-    scheduleId: schedule.id,
-    movieId: schedule.movieId,
-    cinemaId: schedule.cinemaId,
-    seatCategory: seatCategory.name,
-    price: seatCategory.price,
-    purchaseTime: new Date(
-      schedule.scheduledTime.getTime() - Math.random() * 24 * 60 * 60 * 1000
-    ),
-    paymentType: ['QRIS', 'Cash', 'CC'][i % 3],
-  };
-});
-
-const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-  }).format(value);
+const RATING_COLORS: Record<string, string> = {
+    "SU": 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+    "R13": 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+    "D17": 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
+    "default": 'bg-secondary text-secondary-foreground'
 };
 
-const getStatusBadgeClass = (status: 'On-Time' | 'Delayed' | 'Cancelled') => {
-  if (status === 'Cancelled') {
-    return "bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400";
-  }
-  if (status === 'Delayed') {
-    return "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400";
-  }
-  return "bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400";
-};
+const PodiumIcon = ({ rank }: { rank: number }) => {
+    if (rank === 1) return <Crown className="h-6 w-6 text-yellow-500" />;
+    if (rank === 2) return <Award className="h-6 w-6 text-slate-500" />;
+    if (rank === 3) return <Medal className="h-6 w-6 text-amber-700" />;
+    return null;
+}
 
-const getHighestOccupancySuggestion = (occupancy: number) => {
-  if (occupancy >= 85) {
-    return "Consider adding more showtimes, upgrading studio allocation, or testing premium pricing.";
-  }
-  if (occupancy >= 70) {
-    return "Maintain the current schedule and monitor whether demand justifies an additional show.";
-  }
-  return "Performance is strong enough to keep the schedule stable while monitoring trend consistency.";
-};
+// ===========================
+// PAGE COMPONENT
+// ===========================
 
-const getLowestOccupancySuggestion = (occupancy: number) => {
-  if (occupancy < 30) {
-    return "Consider reducing show frequency or offering price promotions.";
-  }
-  if (occupancy < 50) {
-    return "Review schedule timing, improve promotion, and test targeted discounts.";
-  }
-  return "Keep the title under observation and optimize showtimes before making major reductions.";
-};
+export default function FilmPerformancePage() {
+    const {
+        selectedCity,
+        selectedCinema,
+        dateRange,
+        setCity,
+        setCinema,
+        setDateRange,
+        apiQuery: query,
+    } = useDashboardUrlFilters();
 
-// Helper ini memberi label apakah demand film sudah pas dengan kapasitas yang dipakai.
-const getCapacityFitLabel = (occupancy: number, baseline: number) => {
-  if (occupancy >= baseline + 10) return "Undersized";
-  if (occupancy <= baseline - 10) return "Oversized";
-  return "Fit";
-};
+    const dateRangeRef = useRef(dateRange);
+    dateRangeRef.current = dateRange;
 
-// Helper ini mengubah score performa jadi status aksi yang mudah dibaca.
-const getPerformanceStatus = (score: number) => {
-  if (score < 0.5) return "Critical";
-  if (score < 0.7) return "Underperforming";
-  return "Good";
-};
+    const [cities, setCities] = useState<string[]>([]);
+    const [cinemas, setCinemas] = useState<CinemaBreakdownResponse["breakdown"]>([]);
+    const [filtersLoading, setFiltersLoading] = useState(true);
+    const [loading, setLoading] = useState(true);
+    
+    const [data, setData] = useState<FilmsPayload>({
+        overview: null,
+        performance: null,
+        schedules: null,
+        occupancy: null,
+        distribution: null,
+        risk: null,
+    });
 
-// Page ini membaca performa film dari winner sampai risk agar keputusan lineup lebih jelas.
-export default function FilmsAnalyticsPage() {
-  const [selectedCity, setSelectedCity] = useState("all");
-  const [selectedCinema, setSelectedCinema] = useState("all");
-  const [apiOverview, setApiOverview] = useState<FilmsOverviewMetrics | null>(null);
-  const [apiOverviewLoading, setApiOverviewLoading] = useState(true);
-  const [apiOverviewError, setApiOverviewError] = useState(false);
-  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>({
-    from: new Date(2026, 2, 24),
-    to: new Date(2026, 2, 29),
-  });
+    useEffect(() => {
+        let cancelled = false;
 
-  useEffect(() => {
-    let cancelled = false;
+        const loadFilters = async () => {
+            setFiltersLoading(true);
+            const [citiesResult, cinemaResult, healthResult] = await Promise.allSettled([
+                getCities(),
+                getCinemaBreakdown(),
+                getSystemHealth(),
+            ]);
 
-    // Effect ini memuat ringkasan live untuk kartu films overview.
-    // Request hanya mengikuti filter city dan cinema karena API belum mendukung period.
-    const loadOverview = async () => {
-      setApiOverviewLoading(true);
-      setApiOverviewError(false);
-      setApiOverview(null);
+            if (cancelled) return;
 
-      try {
-        const overview = await getFilmsOverviewMetrics({
-          cityId: selectedCity,
-          cinemaId: selectedCinema,
+            if (citiesResult.status === "fulfilled") {
+                setCities(citiesResult.value);
+            }
+            if (cinemaResult.status === "fulfilled") {
+                setCinemas(cinemaResult.value.breakdown);
+            }
+
+            if (
+                healthResult.status === "fulfilled" &&
+                healthResult.value.last_data_in &&
+                !dateRangeRef.current?.from
+            ) {
+                const endDate = new Date(healthResult.value.last_data_in);
+                const startDate = subDays(endDate, 6);
+                setDateRange({ from: startDate, to: endDate });
+            }
+
+            setFiltersLoading(false);
+        };
+
+        loadFilters();
+
+        return () => { cancelled = true; };
+    }, [setDateRange]);
+
+    useEffect(() => {
+        if (selectedCinema === "all") return;
+        const valid = cinemas.some(
+            (c) =>
+                c.cinema_id === selectedCinema &&
+                (selectedCity === "all" || c.city === selectedCity)
+        );
+        if (!valid) setCinema("all");
+    }, [cinemas, selectedCinema, selectedCity, setCinema]);
+
+    // Load Data
+    useEffect(() => {
+        if (filtersLoading) return;
+        let cancelled = false;
+
+        const loadFilmsDashboard = async () => {
+            setLoading(true);
+            try {
+                const bundle = await getFilmsAnalyticsBundle({ ...query, top_n: "20" });
+                if (cancelled) return;
+                setData({
+                    overview: bundle.overview,
+                    performance: bundle.performance,
+                    schedules: bundle.schedules,
+                    occupancy: bundle.occupancy,
+                    distribution: bundle.distribution,
+                    risk: bundle.operational_risk,
+                });
+            } catch {
+                if (cancelled) return;
+                setData({
+                    overview: null,
+                    performance: null,
+                    schedules: null,
+                    occupancy: null,
+                    distribution: null,
+                    risk: null,
+                });
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+
+        loadFilmsDashboard();
+
+        return () => { cancelled = true; };
+    }, [query, filtersLoading]);
+
+    const scheduleRows = useMemo(() => {
+        const rows = data.schedules?.schedule_performance ?? [];
+        return [...rows]
+            .sort((a, b) => b.total_tickets - a.total_tickets)
+            .slice(0, 15);
+    }, [data.schedules?.schedule_performance]);
+
+
+    // Construct UI Variables from API Data
+    const totalFilms = data.overview?.active_films ?? 0;
+    const topFilmLaris = data.performance?.top_movie ?? { title: "-" };
+    const totalTicketsSold = data.overview?.tickets_sold ?? 0;
+    const rawTopGenre = data.distribution?.genre_popularity?.summary?.top_genre?.genre;
+    const topGenreText = rawTopGenre === "Unknown" ? "Lainnya" : (rawTopGenre ?? "-");
+
+    const filmPerformance = useMemo(() => {
+        if (!data.performance?.breakdown) return [];
+        return data.performance.breakdown.map((film) => {
+            const occEntry = data.occupancy?.by_movie?.find((o) => o.movie_id === film.movie_id);
+            let genresLabel =
+                film.genres && film.genres.length > 0
+                    ? film.genres.join(", ")
+                    : film.genre ?? "—";
+            
+            if (genresLabel === "Unknown") genresLabel = "Lainnya";
+            return {
+                id: film.movie_id,
+                title: film.title,
+                tickets: film.total_tickets,
+                revenue: film.total_revenue,
+                avgPrice: film.total_tickets > 0 ? film.total_revenue / film.total_tickets : 0,
+                occupancy: occEntry ? occEntry.occupancy : 0,
+                genresLabel,
+                ratingUsia: film.rating_usia ?? film.rating ?? "—",
+                shareOfTickets: film.share_of_tickets ?? 0,
+                shareOfRevenue: film.share_of_revenue ?? 0,
+            };
+        }).sort((a, b) => b.tickets - a.tickets);
+    }, [data.performance, data.occupancy]);
+
+    const topFilmsByTickets = filmPerformance.slice(0, 3);
+    const filmsByRevenue = [...filmPerformance].sort((a, b) => b.revenue - a.revenue);
+    const filmsByOccupancy = [...filmPerformance].sort((a, b) => b.occupancy - a.occupancy);
+
+    const genrePerformance = useMemo(() => {
+        if (!data.distribution?.genre_popularity?.breakdown) return [];
+        return data.distribution.genre_popularity.breakdown.map(g => ({
+            name: g.genre === "Unknown" ? "Lainnya" : g.genre,
+            tickets: g.total_tickets,
+        })).sort((a, b) => b.tickets - a.tickets);
+    }, [data.distribution]);
+
+    const totalTicketsForGenreStack = genrePerformance.reduce((sum, g) => sum + g.tickets, 0);
+    const stackedGenreData = [{
+        name: 'genres',
+        ...genrePerformance.reduce((obj, genre) => {
+            obj[genre.name] = genre.tickets;
+            return obj;
+        }, {} as Record<string, number>)
+    }];
+
+    const ratingPerformance = useMemo(() => {
+        if (!data.distribution?.genre_popularity?.breakdown_rating_usia) return [];
+        return data.distribution.genre_popularity.breakdown_rating_usia.map(r => {
+            return {
+                name: r.rating_usia,
+                tickets: r.total_tickets_sold,
+            };
+        });
+    }, [data.distribution]);
+
+    // ── Auto-computed insights ─────────────────────────────────────────────
+    const topByTickets = filmPerformance[0];
+    const topByOccupancy = filmsByOccupancy[0];
+    const lowestOccupancy = filmsByOccupancy[filmsByOccupancy.length - 1];
+    const topGenreData = genrePerformance[0];
+    const avgOccupancyFilms = filmPerformance.length
+        ? filmPerformance.reduce((s, f) => s + f.occupancy, 0) / filmPerformance.length
+        : null;
+    const dateLabel = dateRange?.from && dateRange?.to
+        ? `${format(dateRange.from, "d MMM")}–${format(dateRange.to, "d MMM yyyy")}`
+        : "periode aktif";
+
+    const insightBanners: { icon: React.ReactNode; text: string; color: string }[] = [];
+
+    if (topByTickets)
+        insightBanners.push({
+            icon: <Crown className="h-3.5 w-3.5" />,
+            text: `Film terlaris: ${topByTickets.title} (${topByTickets.tickets.toLocaleString("id-ID")} tiket · ${topByTickets.shareOfTickets.toFixed(1)}% pangsa).`,
+            color: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400",
         });
 
-        if (cancelled) return;
-        setApiOverview(overview);
-        setApiOverviewError(false);
-      } catch {
-        if (cancelled) return;
-        setApiOverview(null);
-        setApiOverviewError(true);
-      } finally {
-        if (cancelled) return;
-        setApiOverviewLoading(false);
-      }
-    };
+    if (topByOccupancy && topByOccupancy.occupancy > 0)
+        insightBanners.push({
+            icon: <TrendingUp className="h-3.5 w-3.5" />,
+            text: `Okupansi tertinggi: ${topByOccupancy.title} — ${topByOccupancy.occupancy.toFixed(1)}%. Jadwal ini sangat diminati.`,
+            color: "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400",
+        });
 
-    loadOverview();
+    if (lowestOccupancy && lowestOccupancy.occupancy < 40 && filmsByOccupancy.length > 1)
+        insightBanners.push({
+            icon: <AlertTriangle className="h-3.5 w-3.5" />,
+            text: `${lowestOccupancy.title} memiliki okupansi terendah (${lowestOccupancy.occupancy.toFixed(1)}%). Pertimbangkan promosi atau pengurangan jadwal.`,
+            color: "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400",
+        });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedCity, selectedCinema]);
+    if (topGenreData && totalTicketsForGenreStack > 0)
+        insightBanners.push({
+            icon: <Clapperboard className="h-3.5 w-3.5" />,
+            text: `Genre dominan: ${topGenreData.name} (${((topGenreData.tickets / totalTicketsForGenreStack) * 100).toFixed(1)}% dari total tiket).`,
+            color: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400",
+        });
 
-  const visibleCinemaOptions = useMemo(() => {
-    const filteredCinemas = cinemas.filter((cinema) => {
-      if (selectedCity === "all") return true;
-      return cinema.city.toLowerCase() === selectedCity;
-    });
+    if (loading && !data.overview) {
+        return <div className="flex h-64 items-center justify-center text-muted-foreground">Memuat data dashboard...</div>;
+    }
 
-    return [
-      { id: "all", name: "All Cinemas" },
-      ...filteredCinemas.map((cinema) => ({
-        id: cinema.id,
-        name: cinema.name,
-      })),
-    ];
-  }, [selectedCity]);
-
-  const appliedFilmsRange = useMemo(() => {
-    if (!selectedDateRange?.from) return null;
-
-    return {
-      from: startOfDay(selectedDateRange.from),
-      to: endOfDay(selectedDateRange.to ?? selectedDateRange.from),
-    };
-  }, [selectedDateRange]);
-
-  const filteredSchedules = useMemo(() => {
-    return schedules.filter((schedule) => {
-      const cinema = cinemas.find((c) => c.id === schedule.cinemaId);
-
-      const matchCity =
-        selectedCity === "all"
-          ? true
-          : cinema?.city.toLowerCase() === selectedCity;
-
-      const matchCinema =
-        selectedCinema === "all" ? true : schedule.cinemaId === selectedCinema;
-
-      const matchDate = appliedFilmsRange
-        ? schedule.scheduledTime >= appliedFilmsRange.from &&
-          schedule.scheduledTime <= appliedFilmsRange.to
-        : true;
-
-      return matchCity && matchCinema && matchDate;
-    });
-  }, [selectedCity, selectedCinema, appliedFilmsRange]);
-
-  const filteredScheduleIds = useMemo(
-    () => new Set(filteredSchedules.map((schedule) => schedule.id)),
-    [filteredSchedules]
-  );
-
-  const filteredTickets = useMemo(() => {
-    return tickets.filter((ticket) => filteredScheduleIds.has(ticket.scheduleId));
-  }, [filteredScheduleIds]);
-
-  const effectiveFilmsRange = useMemo(() => {
-    if (appliedFilmsRange) return appliedFilmsRange;
-    if (filteredSchedules.length === 0) return null;
-
-    const sorted = [...filteredSchedules].sort(
-      (a, b) => a.scheduledTime.getTime() - b.scheduledTime.getTime()
-    );
-
-    return {
-      from: startOfDay(sorted[0].scheduledTime),
-      to: endOfDay(sorted[sorted.length - 1].scheduledTime),
-    };
-  }, [appliedFilmsRange, filteredSchedules]);
-
-  const uniqueMovieIds = new Set(filteredSchedules.map((schedule) => schedule.movieId));
-  const activeFilmsCount = uniqueMovieIds.size;
-  const totalShows = filteredSchedules.length;
-  const totalTicketsSold = filteredTickets.length;
-  const totalRevenue = filteredTickets.reduce((acc, ticket) => acc + ticket.price, 0);
-
-  const activeSchedulesOnly = filteredSchedules.filter((schedule) => schedule.status !== "Cancelled");
-  const totalCapacity = activeSchedulesOnly.reduce((acc, schedule) => acc + schedule.capacity, 0);
-  const avgOccupancy = totalCapacity > 0 ? (totalTicketsSold / totalCapacity) * 100 : 0;
-
-  const filmsDayCount = effectiveFilmsRange
-    ? Math.max(
-        1,
-        Math.floor(
-          (effectiveFilmsRange.to.getTime() - effectiveFilmsRange.from.getTime()) /
-            (1000 * 60 * 60 * 24)
-        ) + 1
-      )
-    : 1;
-
-  const showsPerDay = effectiveFilmsRange
-    ? Array.from({ length: filmsDayCount }).map((_, i) => {
-        const current = new Date(effectiveFilmsRange.from);
-        current.setDate(effectiveFilmsRange.from.getDate() + i);
-
-        const count = filteredSchedules.filter((schedule) => {
-          return (
-            schedule.scheduledTime.getFullYear() === current.getFullYear() &&
-            schedule.scheduledTime.getMonth() === current.getMonth() &&
-            schedule.scheduledTime.getDate() === current.getDate()
-          );
-        }).length;
-
-        return {
-          date: format(current, "yyyy-MM-dd"),
-          name: format(current, "dd MMM"),
-          shows: count,
-        };
-      })
-    : [];
-
-  const ticketsPerMovie = movies
-    .map((movie) => {
-      const movieTickets = filteredTickets.filter((ticket) => ticket.movieId === movie.id);
-      return {
-        name: movie.title,
-        tickets: movieTickets.length,
-      };
-    })
-    .filter((item) => item.tickets > 0)
-    .sort((a, b) => b.tickets - a.tickets);
-
-  const revenuePerMovie = movies
-    .map((movie) => {
-      const movieTickets = filteredTickets.filter((ticket) => ticket.movieId === movie.id);
-      const revenue = movieTickets.reduce((acc, ticket) => acc + ticket.price, 0);
-
-      return {
-        name: movie.title,
-        revenue,
-      };
-    })
-    .filter((item) => item.revenue > 0)
-    .sort((a, b) => b.revenue - a.revenue);
-
-  const occupancyPerMovie = movies
-    .map((movie) => {
-      const movieSchedules = filteredSchedules.filter(
-        (schedule) => schedule.movieId === movie.id && schedule.status !== "Cancelled"
-      );
-      const movieCapacity = movieSchedules.reduce((acc, schedule) => acc + schedule.capacity, 0);
-      const movieTicketsSold = filteredTickets.filter((ticket) => ticket.movieId === movie.id).length;
-      const occupancy = movieCapacity > 0 ? (movieTicketsSold / movieCapacity) * 100 : 0;
-
-      return {
-        name: movie.title,
-        shows: movieSchedules.length,
-        tickets: movieTicketsSold,
-        capacity: movieCapacity,
-        occupancy,
-      };
-    })
-    .filter((item) => item.shows > 0)
-    .sort((a, b) => b.occupancy - a.occupancy);
-
-  const highestOccupancyFilm =
-    occupancyPerMovie.length > 0 ? occupancyPerMovie[0] : null;
-
-  const lowestOccupancyFilm =
-    occupancyPerMovie.length > 0
-      ? occupancyPerMovie[occupancyPerMovie.length - 1]
-      : null;
-
-  const topThreeBestSellingFilms = movies
-    .map((movie) => {
-      const movieTickets = filteredTickets.filter((ticket) => ticket.movieId === movie.id);
-      const movieSchedules = filteredSchedules.filter(
-        (schedule) => schedule.movieId === movie.id && schedule.status !== "Cancelled"
-      );
-      const revenue = movieTickets.reduce((acc, ticket) => acc + ticket.price, 0);
-      const capacity = movieSchedules.reduce((acc, schedule) => acc + schedule.capacity, 0);
-      const occupancy = capacity > 0 ? (movieTickets.length / capacity) * 100 : 0;
-
-      return {
-        id: movie.id,
-        title: movie.title,
-        genre: movie.genre,
-        tickets: movieTickets.length,
-        revenue,
-        shows: movieSchedules.length,
-        occupancy,
-      };
-    })
-    .filter((item) => item.tickets > 0)
-    .sort((a, b) => b.tickets - a.tickets)
-    .slice(0, 3);
-
-  const genreDistribution = Object.entries(
-    filteredSchedules.reduce<Record<string, number>>((acc, schedule) => {
-      const movie = movies.find((item) => item.id === schedule.movieId);
-      const genre = movie?.genre ?? "Unknown";
-      acc[genre] = (acc[genre] || 0) + 1;
-      return acc;
-    }, {})
-  ).map(([name, value]) => ({ name, value }));
-
-  const formatDistribution = Object.entries(
-    filteredSchedules.reduce<Record<string, number>>((acc, schedule) => {
-      const studio = studios.find((item) => item.id === schedule.studioId);
-      const type = studio?.type ?? "Unknown";
-      acc[type] = (acc[type] || 0) + 1;
-      return acc;
-    }, {})
-  ).map(([name, value]) => ({ name, value }));
-
-  const cancelledShows = filteredSchedules.filter((schedule) => schedule.status === "Cancelled").length;
-  const delayedShows = filteredSchedules.filter((schedule) => schedule.status === "Delayed").length;
-  const totalDelayMinutes = filteredSchedules.reduce((acc, schedule) => acc + schedule.delayMinutes, 0);
-  const avgDelay = delayedShows > 0 ? Math.round(totalDelayMinutes / delayedShows) : 0;
-
-  const sortedProblematicSchedules = [...filteredSchedules].sort((a, b) => {
-    const statusOrder = { Cancelled: 0, Delayed: 1, "On-Time": 2 };
     return (
-      statusOrder[a.status] - statusOrder[b.status] ||
-      b.scheduledTime.getTime() - a.scheduledTime.getTime()
-    );
-  });
+        <div className="space-y-8">
 
-  const periodLabel = selectedDateRange?.from
-    ? `${format(selectedDateRange.from, "dd MMM yyyy")} - ${format(
-        selectedDateRange.to ?? selectedDateRange.from,
-        "dd MMM yyyy"
-      )}`
-    : "All Periods";
-
-  const rankingStyles = [
-    "border-yellow-500/30 bg-yellow-500/10",
-    "border-slate-400/30 bg-slate-400/10",
-    "border-amber-700/30 bg-amber-700/10",
-  ];
-
-  const schedulePerformanceRows = filteredSchedules
-    .map((schedule) => {
-      const scheduleTickets = filteredTickets.filter((ticket) => ticket.scheduleId === schedule.id);
-      const revenue = scheduleTickets.reduce((acc, ticket) => acc + ticket.price, 0);
-      const movie = movies.find((item) => item.id === schedule.movieId);
-      const cinema = cinemas.find((item) => item.id === schedule.cinemaId);
-
-      return {
-        id: schedule.id,
-        movieTitle: movie?.title ?? "Unknown",
-        cinemaName: cinema?.name ?? "Unknown",
-        showDate: format(schedule.scheduledTime, "dd MMM"),
-        startTime: format(schedule.scheduledTime, "HH:mm"),
-        tickets: scheduleTickets.length,
-        revenue,
-        occupancy: schedule.capacity > 0 ? (scheduleTickets.length / schedule.capacity) * 100 : 0,
-      };
-    })
-    .sort((a, b) => b.tickets - a.tickets || b.revenue - a.revenue);
-
-  const repeatScheduleRows = movies
-    .map((movie) => {
-      const dailyPoints = Object.entries(
-        filteredSchedules.reduce<Record<string, number>>((acc, schedule) => {
-          if (schedule.movieId !== movie.id) return acc;
-          const key = format(schedule.scheduledTime, "yyyy-MM-dd");
-          const scheduleTickets = filteredTickets.filter((ticket) => ticket.scheduleId === schedule.id).length;
-          acc[key] = (acc[key] || 0) + scheduleTickets;
-          return acc;
-        }, {})
-      )
-        .map(([date, tickets]) => ({ date, tickets }))
-        .sort((a, b) => a.date.localeCompare(b.date));
-
-      if (dailyPoints.length < 2) return null;
-
-      const firstTickets = dailyPoints[0].tickets;
-      const lastTickets = dailyPoints[dailyPoints.length - 1].tickets;
-      const growthRate = firstTickets > 0 ? ((lastTickets - firstTickets) / firstTickets) * 100 : 0;
-
-      return {
-        movieId: movie.id,
-        title: movie.title,
-        firstTickets,
-        lastTickets,
-        growthRate,
-        repeatDays: dailyPoints.length,
-      };
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-    .sort((a, b) => b.growthRate - a.growthRate);
-
-  const audienceDensityRows = occupancyPerMovie
-    .map((item) => ({
-      name: item.name,
-      totalTickets: item.tickets,
-      totalShows: item.shows,
-      audienceDensity: item.shows > 0 ? item.tickets / item.shows : 0,
-    }))
-    .sort((a, b) => b.audienceDensity - a.audienceDensity);
-
-  const occupancyByDay = showsPerDay.map((day) => {
-    const daySchedules = activeSchedulesOnly.filter(
-      (schedule) => format(schedule.scheduledTime, "yyyy-MM-dd") === day.date
-    );
-    const dayScheduleIds = new Set(daySchedules.map((schedule) => schedule.id));
-    const dayTickets = filteredTickets.filter((ticket) => dayScheduleIds.has(ticket.scheduleId)).length;
-    const dayCapacity = daySchedules.reduce((acc, schedule) => acc + schedule.capacity, 0);
-
-    return {
-      label: day.name,
-      occupancy: dayCapacity > 0 ? (dayTickets / dayCapacity) * 100 : 0,
-      tickets: dayTickets,
-      capacity: dayCapacity,
-    };
-  });
-
-  const occupancyByStudio = studios
-    .filter((studio) => {
-      if (selectedCinema !== "all" && studio.cinemaId !== selectedCinema) return false;
-      const cinema = cinemas.find((item) => item.id === studio.cinemaId);
-      if (selectedCity !== "all" && cinema?.city.toLowerCase() !== selectedCity) return false;
-      return true;
-    })
-    .map((studio) => {
-      const studioSchedules = activeSchedulesOnly.filter((schedule) => schedule.studioId === studio.id);
-      const studioScheduleIds = new Set(studioSchedules.map((schedule) => schedule.id));
-      const studioTickets = filteredTickets.filter((ticket) => studioScheduleIds.has(ticket.scheduleId)).length;
-      const studioCapacity = studioSchedules.reduce((acc, schedule) => acc + schedule.capacity, 0);
-      const cinema = cinemas.find((item) => item.id === studio.cinemaId);
-
-      return {
-        id: studio.id,
-        label: studio.name,
-        cinemaName: cinema?.name ?? "Unknown",
-        occupancy: studioCapacity > 0 ? (studioTickets / studioCapacity) * 100 : 0,
-        tickets: studioTickets,
-        capacity: studioCapacity,
-      };
-    })
-    .filter((item) => item.capacity > 0)
-    .sort((a, b) => b.occupancy - a.occupancy);
-
-  const capacityFitRows = occupancyPerMovie
-    .map((item) => ({
-      name: item.name,
-      occupancy: item.occupancy,
-      avgOccupancy,
-      fitLabel: getCapacityFitLabel(item.occupancy, avgOccupancy),
-    }))
-    .sort((a, b) => b.occupancy - a.occupancy);
-
-  const underperformingRows = occupancyPerMovie
-    .map((item) => {
-      const score = avgOccupancy > 0 ? item.occupancy / avgOccupancy : 0;
-      const status = getPerformanceStatus(score);
-
-      return {
-        name: item.name,
-        score,
-        status,
-        occupancy: item.occupancy,
-        recommendation:
-          status === "Critical"
-            ? "Reduce shows or replace the title."
-            : status === "Underperforming"
-            ? "Review time slot and studio assignment."
-            : "Keep the current setup and monitor trend.",
-      };
-    })
-    .sort((a, b) => a.score - b.score);
-
-  return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Films Analytics</h1>
-          <p className="text-muted-foreground">Period: {periodLabel}</p>
-        </div>
-
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="w-full md:w-52">
-            <Select
-              value={selectedCity}
-              onValueChange={(value) => {
-                setSelectedCity(value);
-                setSelectedCinema("all");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select City" />
-              </SelectTrigger>
-              <SelectContent>
-                {cityOptions.map((city) => (
-                  <SelectItem key={city.id} value={city.id}>
-                    {city.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="w-full md:w-64">
-            <Select value={selectedCinema} onValueChange={setSelectedCinema}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select Cinema" />
-              </SelectTrigger>
-              <SelectContent>
-                {visibleCinemaOptions.map((cinema) => (
-                  <SelectItem key={cinema.id} value={cinema.id}>
-                    {cinema.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="w-full md:w-auto">
-            <DateRangeFilter
-              value={selectedDateRange}
-              onApply={setSelectedDateRange}
-              triggerLabel="Select period"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">FILMS OVERVIEW</h2>
-          <p className="text-sm text-muted-foreground">
-            Summary of film performance by city, cinema, and screening period.
-          </p>
-        </header>
-
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Films</CardTitle>
-              <Film className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {apiOverviewLoading
-                  ? "--"
-                  : apiOverviewError
-                  ? "Failed"
-                  : apiOverview?.activeFilms ?? "N/A"}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Shows</CardTitle>
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {apiOverviewLoading
-                  ? "--"
-                  : apiOverviewError
-                  ? "Failed"
-                  : (apiOverview?.totalShows ?? 0).toLocaleString("en-US")}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Tickets Sold</CardTitle>
-              <Ticket className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {apiOverviewLoading
-                  ? "--"
-                  : apiOverviewError
-                  ? "Failed"
-                  : (apiOverview?.ticketsSold ?? 0).toLocaleString("en-US")}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Revenue</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {apiOverviewLoading
-                  ? "--"
-                  : apiOverviewError
-                  ? "Failed"
-                  : formatCurrency(apiOverview?.revenue ?? 0)}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg. Occupancy</CardTitle>
-              <Clock4 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {apiOverviewLoading
-                  ? "--"
-                  : apiOverviewError
-                  ? "Failed"
-                  : apiOverview?.averageOccupancy === null
-                  ? "N/A"
-                  : `${apiOverview.averageOccupancy.toFixed(1)}%`}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <p className="text-xs text-muted-foreground">
-          {apiOverviewLoading
-            ? "Loading live API summary..."
-            : apiOverview
-            ? "Live API data follows city and cinema filters. Period filter is not supported by this endpoint yet."
-            : apiOverviewError
-            ? "API is unavailable for these cards right now."
-            : "No API data available."}
-        </p>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Shows per Day</CardTitle>
-            <CardDescription>Show trend by screening date.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[280px]">
-            {showsPerDay.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={showsPerDay}>
-                  <XAxis
-                    dataKey="name"
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      borderColor: "hsl(var(--border))",
-                    }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="shows"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground">No show data for this period.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">TOP FILMS PERFORMANCE</h2>
-          <p className="text-sm text-muted-foreground">
-            Most popular films based on total tickets sold in the selected period.
-          </p>
-        </header>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Tickets Sold per Film</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[360px]">
-            {ticketsPerMovie.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={ticketsPerMovie.slice(0, 8)} layout="vertical">
-                  <XAxis
-                    type="number"
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={160}
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      borderColor: "hsl(var(--border))",
-                    }}
-                    cursor={{ fill: "hsl(var(--secondary))" }}
-                  />
-                  <Bar dataKey="tickets" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground">No film data for this filter.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">TOP 3 BEST-SELLING FILMS</h2>
-          <p className="text-sm text-muted-foreground">
-            The three strongest films by ticket sales within the selected filter.
-          </p>
-        </header>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          {topThreeBestSellingFilms.length > 0 ? (
-            topThreeBestSellingFilms.map((film, index) => (
-              <Card
-                key={film.id}
-                className={rankingStyles[index] ?? "border-border"}
-              >
-                <CardHeader className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Badge className="bg-primary text-primary-foreground">
-                      Rank #{index + 1}
-                    </Badge>
-                    <Badge className="border border-border bg-transparent text-foreground">{film.genre}
-                    </Badge>
-                  </div>
-                  <CardTitle className="text-lg">{film.title}</CardTitle>
-                  <CardDescription>
-                    Best-selling title based on total ticket sales.
-                  </CardDescription>
-                </CardHeader>
-
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Tickets Sold</p>
-                      <p className="text-xl font-bold">{film.tickets}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Revenue</p>
-                      <p className="text-xl font-bold">{formatCurrency(film.revenue)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Shows</p>
-                      <p className="text-xl font-bold">{film.shows}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Occupancy</p>
-                      <p className="text-xl font-bold">{film.occupancy.toFixed(1)}%</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Occupancy Level</span>
-                      <span className="font-medium">{film.occupancy.toFixed(1)}%</span>
-                    </div>
-                    <Progress
-                      value={film.occupancy}
-                      className={`h-2 [&>div]:bg-green-500 ${
-                        film.occupancy < 40
-                          ? "[&>div]:bg-red-500"
-                          : film.occupancy < 70
-                          ? "[&>div]:bg-amber-500"
-                          : ""
-                      }`}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <Card className="md:col-span-3">
-              <CardContent className="py-10 text-center text-muted-foreground">
-                No best-selling film data found for this filter.
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">REVENUE & OCCUPANCY</h2>
-          <p className="text-sm text-muted-foreground">
-            Comparison of revenue and occupancy across films.
-          </p>
-        </header>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Highest Occupancy</CardTitle>
-              <CardDescription>
-                Best-performing title by occupancy rate.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {highestOccupancyFilm ? (
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-lg font-semibold">{highestOccupancyFilm.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {highestOccupancyFilm.tickets} tickets • {highestOccupancyFilm.shows} shows
+            {/* ── PAGE HEADER ─────────────────────────────────────────── */}
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between text-foreground">
+                <div>
+                    <h1 className="text-2xl font-bold">Film Performance</h1>
+                    <p className="text-muted-foreground text-sm mt-1">
+                        Peringkat dan analitik film berdasarkan tiket, revenue, dan okupansi — {dateLabel}
                     </p>
-                  </div>
-
-                  <div>
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Occupancy</span>
-                      <span className="font-medium">
-                        {highestOccupancyFilm.occupancy.toFixed(1)}%
-                      </span>
-                    </div>
-                    <Progress value={highestOccupancyFilm.occupancy} className="h-2 [&>div]:bg-green-500" />
-                  </div>
-
-                  <div className="rounded-lg border border-border bg-muted/30 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Suggested Action
-                    </p>
-                    <p className="mt-1 text-sm">
-                      {getHighestOccupancySuggestion(highestOccupancyFilm.occupancy)}
-                    </p>
-                  </div>
                 </div>
-              ) : (
-                <p className="text-muted-foreground">No occupancy data available.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Lowest Occupancy</CardTitle>
-              <CardDescription>
-                Weakest-performing title by occupancy rate.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {lowestOccupancyFilm ? (
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-lg font-semibold">{lowestOccupancyFilm.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {lowestOccupancyFilm.tickets} tickets • {lowestOccupancyFilm.shows} shows
-                    </p>
-                  </div>
-
-                  <div>
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Occupancy</span>
-                      <span className="font-medium">
-                        {lowestOccupancyFilm.occupancy.toFixed(1)}%
-                      </span>
+                <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                    <div className="w-full md:w-56">
+                        <DateRangeFilter value={dateRange} onApply={setDateRange} triggerLabel="Pilih Periode" />
                     </div>
-                    <Progress
-                      value={lowestOccupancyFilm.occupancy}
-                      className={`h-2 ${
-                        lowestOccupancyFilm.occupancy < 40
-                          ? "[&>div]:bg-red-500"
-                          : lowestOccupancyFilm.occupancy < 70
-                          ? "[&>div]:bg-amber-500"
-                          : "[&>div]:bg-green-500"
-                      }`}
-                    />
-                  </div>
-
-                  <div className="rounded-lg border border-border bg-muted/30 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Suggested Action
-                    </p>
-                    <p className="mt-1 text-sm">
-                      {getLowestOccupancySuggestion(lowestOccupancyFilm.occupancy)}
-                    </p>
-                  </div>
+                    <div className="w-full md:w-44">
+                        <Select value={selectedCity} onValueChange={setCity}>
+                            <SelectTrigger><SelectValue placeholder="Semua Kota" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Semua Kota</SelectItem>
+                                {cities.map((city) => <SelectItem key={city} value={city}>{city}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="w-full md:w-52">
+                        <Select value={selectedCinema} onValueChange={setCinema}>
+                            <SelectTrigger><SelectValue placeholder="Semua Bioskop" /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Semua Bioskop</SelectItem>
+                                {cinemas
+                                    .filter((c) => selectedCity === "all" || c.city === selectedCity)
+                                    .map((c) => <SelectItem key={c.cinema_id} value={c.cinema_id}>{c.cinema_name}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </div>
-              ) : (
-                <p className="text-muted-foreground">No occupancy data available.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-5">
-          <div className="lg:col-span-3">
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue per Film</CardTitle>
-              </CardHeader>
-              <CardContent className="h-[350px]">
-                {revenuePerMovie.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={revenuePerMovie.slice(0, 7)} layout="vertical">
-                      <XAxis
-                        type="number"
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={12}
-                        tickLine={false}
-                        axisLine={false}
-                        tickFormatter={(value) => `Rp${Number(value) / 1000000}M`}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        width={160}
-                        stroke="hsl(var(--muted-foreground))"
-                        fontSize={12}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          borderColor: "hsl(var(--border))",
-                        }}
-                        cursor={{ fill: "hsl(var(--secondary))" }}
-                        formatter={(value) => formatCurrency(Number(value))}
-                      />
-                      <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <p className="text-muted-foreground">No revenue data for this filter.</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Occupancy per Film</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Film</TableHead>
-                      <TableHead className="text-right">Occupancy</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {occupancyPerMovie.slice(0, 8).map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <div className="font-medium">{item.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {item.tickets} tickets • {item.shows} shows
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="w-12 text-right font-medium">
-                              {item.occupancy.toFixed(1)}%
-                            </span>
-                            <Progress
-                              value={item.occupancy}
-                              className={`h-2 w-20 [&>div]:bg-green-500 ${
-                                item.occupancy < 40
-                                  ? '[&>div]:bg-red-500'
-                                  : item.occupancy < 70
-                                  ? '[&>div]:bg-amber-500'
-                                  : ''
-                              }`}
-                            />
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {occupancyPerMovie.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={2} className="text-center text-muted-foreground">
-                          No occupancy data available.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">GENRE & FORMAT MIX</h2>
-          <p className="text-sm text-muted-foreground">
-            Show composition by film genre and studio format.
-          </p>
-        </header>
-
-        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Genre Distribution</CardTitle>
-            </CardHeader>
-            <CardContent className="h-[320px]">
-              {genreDistribution.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={genreDistribution}>
-                    <XAxis
-                      dataKey="name"
-                      stroke="hsl(var(--muted-foreground))"
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      stroke="hsl(var(--muted-foreground))"
-                      fontSize={12}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        borderColor: "hsl(var(--border))",
-                      }}
-                      cursor={{ fill: "hsl(var(--secondary))" }}
-                    />
-                    <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full items-center justify-center">
-                  <p className="text-muted-foreground">No genre data available.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Studio Format Distribution</CardTitle>
-            </CardHeader>
-            <CardContent className="h-[320px]">
-              {formatDistribution.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={formatDistribution}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      label
-                    >
-                      {formatDistribution.map((_, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            index % 4 === 0
-                              ? "hsl(var(--primary))"
-                              : index % 4 === 1
-                              ? "hsl(var(--chart-2))"
-                              : index % 4 === 2
-                              ? "hsl(var(--chart-3))"
-                              : "hsl(var(--chart-4))"
-                          }
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        borderColor: "hsl(var(--border))",
-                      }}
-                    />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full items-center justify-center">
-                  <p className="text-muted-foreground">No studio format data available.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">SCHEDULE & EFFICIENCY</h2>
-          <p className="text-sm text-muted-foreground">
-            Read schedule strength first, then check whether screen volume is too high or too low.
-          </p>
-        </header>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Schedule Performance</CardTitle>
-              <CardDescription>Top schedules by ticket volume and realized occupancy.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Film</TableHead>
-                    <TableHead>Show</TableHead>
-                    <TableHead className="text-right">Tickets</TableHead>
-                    <TableHead className="text-right">Occupancy</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {schedulePerformanceRows.slice(0, 6).map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>
-                        <div className="font-medium">{item.movieTitle}</div>
-                        <div className="text-sm text-muted-foreground">{item.cinemaName}</div>
-                      </TableCell>
-                      <TableCell>{item.showDate}, {item.startTime}</TableCell>
-                      <TableCell className="text-right">{item.tickets}</TableCell>
-                      <TableCell className="text-right">{item.occupancy.toFixed(1)}%</TableCell>
-                    </TableRow>
-                  ))}
-                  {schedulePerformanceRows.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">
-                        No schedule performance data available.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Repeat Schedule Performance</CardTitle>
-              <CardDescription>Check whether repeated screenings still gain or lose traction.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Film</TableHead>
-                    <TableHead className="text-right">First Day</TableHead>
-                    <TableHead className="text-right">Last Day</TableHead>
-                    <TableHead className="text-right">Growth</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {repeatScheduleRows.slice(0, 6).map((item) => (
-                    <TableRow key={item.movieId}>
-                      <TableCell>
-                        <div className="font-medium">{item.title}</div>
-                        <div className="text-sm text-muted-foreground">{item.repeatDays} screening days</div>
-                      </TableCell>
-                      <TableCell className="text-right">{item.firstTickets}</TableCell>
-                      <TableCell className="text-right">{item.lastTickets}</TableCell>
-                      <TableCell className="text-right">
-                        <span className={item.growthRate >= 0 ? "text-green-600" : "text-red-600"}>
-                          {item.growthRate >= 0 ? "+" : ""}
-                          {item.growthRate.toFixed(1)}%
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {repeatScheduleRows.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">
-                        Not enough repeated screening data for this filter.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Audience Density</CardTitle>
-            <CardDescription>Average audience size per screening for each film.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[320px]">
-            {audienceDensityRows.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={audienceDensityRows.slice(0, 8)} layout="vertical">
-                  <XAxis
-                    type="number"
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={160}
-                    stroke="hsl(var(--muted-foreground))"
-                    fontSize={12}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      borderColor: "hsl(var(--border))",
-                    }}
-                    formatter={(value) => `${Number(value).toFixed(1)} viewers/show`}
-                  />
-                  <Bar dataKey="audienceDensity" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-muted-foreground">No audience density data available.</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">FIT & ACTION</h2>
-          <p className="text-sm text-muted-foreground">
-            Compare occupancy, capacity fit, and underperforming score before changing the lineup.
-          </p>
-        </header>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Occupancy Breakdown</CardTitle>
-            <CardDescription>Drill down occupancy by movie, day, and studio.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="movie">
-              <TabsList>
-                <TabsTrigger value="movie">By Movie</TabsTrigger>
-                <TabsTrigger value="day">By Day</TabsTrigger>
-                <TabsTrigger value="studio">By Studio</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="movie">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Label</TableHead>
-                      <TableHead className="text-right">Tickets</TableHead>
-                      <TableHead className="text-right">Capacity</TableHead>
-                      <TableHead className="text-right">Occupancy</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {occupancyPerMovie.slice(0, 8).map((item) => (
-                      <TableRow key={item.name}>
-                        <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell className="text-right">{item.tickets}</TableCell>
-                        <TableCell className="text-right">{item.capacity}</TableCell>
-                        <TableCell className="text-right">{item.occupancy.toFixed(1)}%</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TabsContent>
-
-              <TabsContent value="day">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Day</TableHead>
-                      <TableHead className="text-right">Tickets</TableHead>
-                      <TableHead className="text-right">Capacity</TableHead>
-                      <TableHead className="text-right">Occupancy</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {occupancyByDay.map((item) => (
-                      <TableRow key={item.label}>
-                        <TableCell className="font-medium">{item.label}</TableCell>
-                        <TableCell className="text-right">{item.tickets}</TableCell>
-                        <TableCell className="text-right">{item.capacity}</TableCell>
-                        <TableCell className="text-right">{item.occupancy.toFixed(1)}%</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TabsContent>
-
-              <TabsContent value="studio">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Studio</TableHead>
-                      <TableHead className="text-right">Tickets</TableHead>
-                      <TableHead className="text-right">Capacity</TableHead>
-                      <TableHead className="text-right">Occupancy</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {occupancyByStudio.slice(0, 8).map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <div className="font-medium">{item.label}</div>
-                          <div className="text-sm text-muted-foreground">{item.cinemaName}</div>
-                        </TableCell>
-                        <TableCell className="text-right">{item.tickets}</TableCell>
-                        <TableCell className="text-right">{item.capacity}</TableCell>
-                        <TableCell className="text-right">{item.occupancy.toFixed(1)}%</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Capacity Fit</CardTitle>
-              <CardDescription>Shows whether each film needs larger, smaller, or similar capacity.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Film</TableHead>
-                    <TableHead className="text-right">Occupancy</TableHead>
-                    <TableHead className="text-right">Baseline</TableHead>
-                    <TableHead className="text-right">Fit</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {capacityFitRows.slice(0, 8).map((item) => (
-                    <TableRow key={item.name}>
-                      <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell className="text-right">{item.occupancy.toFixed(1)}%</TableCell>
-                      <TableCell className="text-right">{item.avgOccupancy.toFixed(1)}%</TableCell>
-                      <TableCell className="text-right">{item.fitLabel}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Underperforming Detection</CardTitle>
-              <CardDescription>Flag films that sit below the network occupancy baseline.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Film</TableHead>
-                    <TableHead className="text-right">Score</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {underperformingRows.slice(0, 8).map((item) => (
-                    <TableRow key={item.name}>
-                      <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell className="text-right">{item.score.toFixed(2)}</TableCell>
-                      <TableCell>
-                        <Badge
-                          className={
-                            item.status === "Critical"
-                              ? "bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400"
-                              : item.status === "Underperforming"
-                              ? "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400"
-                              : "bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400"
-                          }
-                        >
-                          {item.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{item.recommendation}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      <div className="h-px bg-border" />
-
-      <section className="space-y-6">
-        <header>
-          <h2 className="text-lg font-semibold">PROBLEMATIC SHOWS</h2>
-          <p className="text-sm text-muted-foreground">
-            Summary of cancelled and delayed schedules in the selected period.
-          </p>
-        </header>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Cancelled Shows</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{cancelledShows} shows</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Delayed Shows</CardTitle>
-              <Clock4 className="h-4 w-4 text-amber-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{delayedShows} shows</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Average Delay</CardTitle>
-              <Clock4 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{avgDelay} minutes</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>Problematic Schedule List</CardTitle>
-              <span className="text-sm text-muted-foreground">
-                Follows city, cinema, and period filters
-              </span>
             </div>
-          </CardHeader>
 
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Film</TableHead>
-                  <TableHead>Cinema</TableHead>
-                  <TableHead>Scheduled Time</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Notes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedProblematicSchedules.slice(0, 10).map((schedule) => (
-                  <TableRow key={schedule.id}>
-                    <TableCell className="font-medium">
-                      {movies.find((movie) => movie.id === schedule.movieId)?.title}
-                    </TableCell>
-                    <TableCell>
-                      {cinemas.find((cinema) => cinema.id === schedule.cinemaId)?.name}
-                    </TableCell>
-                    <TableCell>
-                      {format(schedule.scheduledTime, 'dd MMM yyyy, HH:mm')}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getStatusBadgeClass(schedule.status)}>
-                        {schedule.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {schedule.status === 'Delayed'
-                        ? `${schedule.delayMinutes} min delay`
-                        : schedule.status === 'Cancelled'
-                        ? 'Cancelled'
-                        : '-'}
-                    </TableCell>
-                  </TableRow>
-                ))}
+            {/* ── AUTO INSIGHT BANNERS ─────────────────────────────────── */}
+            {insightBanners.length > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                    {insightBanners.map((b, i) => (
+                        <div key={i} className={`flex items-start gap-2 rounded-xl border px-4 py-3 text-sm font-medium ${b.color}`}>
+                            <span className="mt-0.5 shrink-0">{b.icon}</span>
+                            <span>{b.text}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
 
-                {sortedProblematicSchedules.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      No problematic schedules found for this filter.
-                    </TableCell>
-                  </TableRow>
+            <Separator />
+
+            {/* ── SECTION 1 — KPI CARDS ────────────────────────────────── */}
+            <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h2 className="text-base font-semibold">Ringkasan Film</h2>
+                        <p className="text-xs text-muted-foreground">KPI utama untuk periode terpilih.</p>
+                    </div>
+                    {avgOccupancyFilms != null && (
+                        <Badge variant="outline" className={`text-xs ${avgOccupancyFilms >= 70 ? "border-green-300 text-green-700" : avgOccupancyFilms >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
+                            Avg. Okupansi Film: {avgOccupancyFilms.toFixed(1)}%
+                        </Badge>
+                    )}
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <Card>
+                        <CardHeader className="pb-2">
+                            <div className="flex items-center justify-between text-muted-foreground">
+                                <CardTitle className="text-sm font-medium text-foreground">Total Film Tayang</CardTitle>
+                                <Film className="h-4 w-4" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{totalFilms}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">Film aktif di periode ini</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="pb-2">
+                            <div className="flex items-center justify-between text-muted-foreground">
+                                <CardTitle className="text-sm font-medium text-foreground">Film Terlaris</CardTitle>
+                                <Star className="h-4 w-4 text-amber-500" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-xl font-bold truncate max-w-full leading-tight" title={topFilmLaris.title}>{topFilmLaris.title}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                {topByTickets ? `${topByTickets.tickets.toLocaleString("id-ID")} tiket terjual` : "—"}
+                            </p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="pb-2">
+                            <div className="flex items-center justify-between text-muted-foreground">
+                                <CardTitle className="text-sm font-medium text-foreground">Total Tiket Terjual</CardTitle>
+                                <Ticket className="h-4 w-4" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{totalTicketsSold.toLocaleString("id-ID")}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">Seluruh film aktif</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="pb-2">
+                            <div className="flex items-center justify-between text-muted-foreground">
+                                <CardTitle className="text-sm font-medium text-foreground">Genre Terpopuler</CardTitle>
+                                <Clapperboard className="h-4 w-4" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">{topGenreText}</div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                {topGenreData && totalTicketsForGenreStack > 0
+                                    ? `${topGenreData.tickets.toLocaleString("id-ID")} tiket (${((topGenreData.tickets / totalTicketsForGenreStack) * 100).toFixed(1)}%)`
+                                    : "Berdasarkan tiket terjual"}
+                            </p>
+                        </CardContent>
+                    </Card>
+                </div>
+            </section>
+
+            <Separator />
+
+            {/* ── SECTION 2 — TOP FILM TIKET TERJUAL ──────────────────── */}
+            <section className="space-y-4">
+                <div>
+                    <h2 className="text-base font-semibold">Top Film — Tiket Terjual</h2>
+                    <p className="text-xs text-muted-foreground">
+                        Peringkat film berdasarkan volume tiket.
+                        {topByTickets && ` ${topByTickets.title} memimpin dengan ${topByTickets.shareOfTickets.toFixed(1)}% pangsa.`}
+                    </p>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2">
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Top 10 Film (Tiket)</CardTitle>
+                                <CardDescription>Bar berwarna = top 3. Hover untuk detail pangsa.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="h-[440px] pt-2 pr-4">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={filmPerformance.slice(0, 10)} layout="vertical" margin={{ left: 0, right: 12 }}>
+                                        <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                                        <YAxis type="category" dataKey="title" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} width={140} />
+                                        <Tooltip
+                                            contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))" }}
+                                            cursor={{ fill: "hsl(var(--secondary))" }}
+                                            formatter={(value, _name, props: { payload?: (typeof filmPerformance)[0] }) => {
+                                                const payload = props?.payload;
+                                                const share = payload?.shareOfTickets != null ? ` (${payload.shareOfTickets.toFixed(1)}% pangsa)` : "";
+                                                return [`${(value as number).toLocaleString("id-ID")} tiket${share}`, "Volume"];
+                                            }}
+                                        />
+                                        <Bar dataKey="tickets" barSize={14} radius={[0, 4, 4, 0]}>
+                                            {filmPerformance.slice(0, 10).map((_, index) => (
+                                                <Cell key={`cell-${index}`} fill={index === 0 ? "hsl(var(--primary))" : index < 3 ? "hsl(var(--chart-2))" : "hsl(var(--border))"} />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </CardContent>
+                        </Card>
+                    </div>
+                    <div className="space-y-4">
+                        {topFilmsByTickets.map((film, index) => (
+                            <Card key={film.id} className={index === 0 ? "border-amber-300/50 bg-amber-50/30 dark:bg-amber-900/10" : ""}>
+                                <CardHeader className="pb-2">
+                                    <div className="flex items-start justify-between">
+                                        <PodiumIcon rank={index + 1} />
+                                        <Badge variant="outline" className="text-[10px]">
+                                            {film.ratingUsia}
+                                        </Badge>
+                                    </div>
+                                    <CardTitle className="text-base pt-1 leading-snug">{film.title}</CardTitle>
+                                    <p className="text-xs text-muted-foreground line-clamp-1">{film.genresLabel}</p>
+                                </CardHeader>
+                                <CardContent className="space-y-1.5 pt-0">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Tiket</span>
+                                        <span className="font-bold">{film.tickets.toLocaleString("id-ID")}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Revenue</span>
+                                        <span className="font-semibold">{formatCurrency(film.revenue)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Pangsa revenue</span>
+                                        <span className="font-medium">{film.shareOfRevenue.toFixed(1)}%</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-muted-foreground">Okupansi</span>
+                                        <span className={`font-bold ${film.occupancy >= 70 ? "text-green-600" : film.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                                            {film.occupancy.toFixed(1)}%
+                                        </span>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            <Separator />
+
+            {/* ── SECTION 3 — REVENUE PER FILM ─────────────────────────── */}
+            <section className="space-y-4 text-foreground">
+                <div>
+                    <h2 className="text-base font-semibold">Revenue per Film</h2>
+                    <p className="text-xs text-muted-foreground">Peringkat film berdasarkan total pendapatan (top 15).</p>
+                </div>
+                <Card>
+                    <CardContent className="h-[320px] pt-6 pr-4">
+                        {filmsByRevenue.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={filmsByRevenue.slice(0, 15)}>
+                                    <XAxis dataKey="title" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} angle={-40} textAnchor="end" height={72} />
+                                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `Rp${Math.round(value / 1_000_000)}M`} />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))" }}
+                                        cursor={{ fill: "hsl(var(--secondary))" }}
+                                        formatter={(value, _name, props: { payload?: (typeof filmsByRevenue)[0] }) => {
+                                            const payload = props?.payload;
+                                            const share = payload?.shareOfRevenue != null ? ` · ${payload.shareOfRevenue.toFixed(1)}% pangsa` : "";
+                                            return [`${formatCurrency(Number(value))}${share}`, "Revenue"];
+                                        }}
+                                    />
+                                    <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+                                        {filmsByRevenue.slice(0, 15).map((_, index) => (
+                                            <Cell key={`cell-${index}`} fill={index === 0 ? "hsl(var(--primary))" : "hsl(var(--chart-2))"} fillOpacity={index === 0 ? 1 : 0.7} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Belum ada data revenue per film.</div>
+                        )}
+                    </CardContent>
+                    {filmsByRevenue.length > 0 && (
+                        <CardContent className="border-t pt-4">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>#</TableHead>
+                                        <TableHead>Film</TableHead>
+                                        <TableHead className="hidden sm:table-cell">Genre</TableHead>
+                                        <TableHead className="text-right">Tiket</TableHead>
+                                        <TableHead className="text-right hidden md:table-cell">% Tiket</TableHead>
+                                        <TableHead className="text-right">Revenue</TableHead>
+                                        <TableHead className="text-right hidden md:table-cell">% Rev</TableHead>
+                                        <TableHead className="text-right">Avg. Harga</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filmsByRevenue.slice(0, 7).map((film, i) => (
+                                        <TableRow key={film.id}>
+                                            <TableCell className="text-muted-foreground font-medium w-6">{i === 0 ? "🏆" : i + 1}</TableCell>
+                                            <TableCell className="font-medium max-w-[140px] truncate" title={film.title}>{film.title}</TableCell>
+                                            <TableCell className="hidden sm:table-cell text-muted-foreground text-sm max-w-[120px] truncate" title={film.genresLabel}>{film.genresLabel}</TableCell>
+                                            <TableCell className="text-right">{film.tickets.toLocaleString("id-ID")}</TableCell>
+                                            <TableCell className="text-right hidden md:table-cell">{film.shareOfTickets.toFixed(1)}%</TableCell>
+                                            <TableCell className="text-right font-semibold">{formatCurrency(film.revenue)}</TableCell>
+                                            <TableCell className="text-right hidden md:table-cell">{film.shareOfRevenue.toFixed(1)}%</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(film.avgPrice)}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    )}
+                </Card>
+            </section>
+
+            <Separator />
+
+            {/* ── SECTION 4 — OKUPANSI PER FILM ───────────────────────── */}
+            <section className="space-y-4 text-foreground">
+                <div>
+                    <h2 className="text-base font-semibold">Okupansi per Film</h2>
+                    <p className="text-xs text-muted-foreground">
+                        Persentase kursi terisi dari kapasitas studio.
+                        {topByOccupancy && ` Tertinggi: ${topByOccupancy.title} (${topByOccupancy.occupancy.toFixed(1)}%).`}
+                    </p>
+                </div>
+                <Card>
+                    <CardContent className="h-[440px] pt-6 pr-4">
+                        {filmsByOccupancy.length > 0 ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={filmsByOccupancy.slice(0, 10)} layout="vertical" margin={{ left: 0, right: 12 }}>
+                                    <XAxis type="number" domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                                    <YAxis type="category" dataKey="title" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} width={140} />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))" }}
+                                        cursor={{ fill: "hsl(var(--secondary))" }}
+                                        formatter={(value) => [`${Number(value).toFixed(1)}%`, "Okupansi"]}
+                                    />
+                                    <Bar dataKey="occupancy" barSize={14} radius={[0, 4, 4, 0]}>
+                                        {filmsByOccupancy.slice(0, 10).map((entry, index) => {
+                                            const color = entry.occupancy >= 70 ? "hsl(var(--chart-2))" : entry.occupancy >= 40 ? "hsl(var(--primary))" : "hsl(var(--destructive))";
+                                            return <Cell key={`cell-${index}`} fill={color} />;
+                                        })}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Belum ada data okupansi.</div>
+                        )}
+                    </CardContent>
+                </Card>
+                {filmsByOccupancy.length > 1 && (
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <Card className="border-l-4 border-l-green-500">
+                            <CardHeader className="pb-2">
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-sm font-medium">Okupansi Tertinggi</CardTitle>
+                                    <TrendingUp className="h-4 w-4 text-green-500" />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-base font-bold leading-snug">{filmsByOccupancy[0]?.title}</p>
+                                <p className="text-2xl font-bold text-green-600 mt-1">{(filmsByOccupancy[0]?.occupancy || 0).toFixed(1)}%</p>
+                                <p className="text-xs text-muted-foreground mt-1">Jadwal ini paling diminati penonton.</p>
+                            </CardContent>
+                        </Card>
+                        <Card className="border-l-4 border-l-red-400">
+                            <CardHeader className="pb-2">
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-sm font-medium">Perlu Perhatian</CardTitle>
+                                    <TrendingDown className="h-4 w-4 text-red-500" />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <p className="text-base font-bold leading-snug">{filmsByOccupancy[filmsByOccupancy.length - 1]?.title}</p>
+                                <p className="text-2xl font-bold text-red-500 mt-1">{(filmsByOccupancy[filmsByOccupancy.length - 1]?.occupancy || 0).toFixed(1)}%</p>
+                                <p className="text-xs text-muted-foreground mt-1">Pertimbangkan promosi atau pengurangan jadwal.</p>
+                            </CardContent>
+                        </Card>
+                    </div>
                 )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </section>
-    </div>
-  );
+            </section>
+
+            <Separator />
+
+            {/* ── SECTION 5 — JADWAL & OPERASIONAL ────────────────────── */}
+            <section className="space-y-4 text-foreground">
+                <div>
+                    <h2 className="text-base font-semibold">Jadwal &amp; Operasional</h2>
+                    <p className="text-xs text-muted-foreground">
+                        Slot tayang dengan volume tiket tertinggi. {scheduleRows.length > 0 ? `${scheduleRows.length} jadwal terdeteksi.` : ""}
+                    </p>
+                </div>
+                <Card>
+                    <CardHeader className="pb-2">
+                        <div className="flex items-center gap-2">
+                            <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                            <CardTitle className="text-sm font-medium">Performa per Jadwal Tayang</CardTitle>
+                        </div>
+                        <CardDescription>Top jadwal berdasarkan tiket terjual.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-0 sm:px-6">
+                        {scheduleRows.length > 0 ? (
+                            <div className="max-h-[400px] overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Film</TableHead>
+                                            <TableHead>Tanggal</TableHead>
+                                            <TableHead>Jam</TableHead>
+                                            <TableHead className="text-right">Tiket</TableHead>
+                                            <TableHead className="text-right">Revenue</TableHead>
+                                            <TableHead className="text-right">Okupansi</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {scheduleRows.map((row) => (
+                                            <TableRow key={row.schedule_id}>
+                                                <TableCell className="max-w-[160px] truncate font-medium">{row.title}</TableCell>
+                                                <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                                                    {row.show_date
+                                                        ? format(new Date(row.show_date.slice(0, 10)), "d MMM yyyy", { locale: localeId })
+                                                        : "—"}
+                                                </TableCell>
+                                                <TableCell className="text-sm">{row.start_time ?? "—"}</TableCell>
+                                                <TableCell className="text-right">{row.total_tickets.toLocaleString("id-ID")}</TableCell>
+                                                <TableCell className="text-right text-muted-foreground">{formatCurrency(row.revenue)}</TableCell>
+                                                <TableCell className="text-right">
+                                                    <span className={`font-semibold ${row.occupancy >= 70 ? "text-green-600" : row.occupancy >= 40 ? "text-amber-600" : "text-red-500"}`}>
+                                                        {row.occupancy.toFixed(1)}%
+                                                    </span>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        ) : (
+                            <p className="px-6 pb-6 text-sm text-muted-foreground">Belum ada data jadwal untuk filter ini.</p>
+                        )}
+                    </CardContent>
+                </Card>
+            </section>
+
+            <Separator />
+
+            {/* ── SECTION 6 — GENRE BREAKDOWN ──────────────────────────── */}
+            <section className="space-y-4 text-foreground">
+                <div>
+                    <h2 className="text-base font-semibold">Distribusi Genre</h2>
+                    <p className="text-xs text-muted-foreground">
+                        Perbandingan penjualan tiket berdasarkan genre film.
+                        {topGenreData && ` ${topGenreData.name} mendominasi dengan ${totalTicketsForGenreStack > 0 ? ((topGenreData.tickets / totalTicketsForGenreStack) * 100).toFixed(1) : 0}%.`}
+                    </p>
+                </div>
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="flex flex-col md:flex-row items-center gap-8">
+                            <div className="w-full md:w-1/2">
+                                {genrePerformance.length > 0 ? (
+                                    <div className="h-[260px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie
+                                                    data={genrePerformance}
+                                                    dataKey="tickets"
+                                                    nameKey="name"
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    innerRadius={70}
+                                                    outerRadius={110}
+                                                    stroke="hsl(var(--background))"
+                                                    strokeWidth={3}
+                                                >
+                                                    {genrePerformance.map((_, idx) => (
+                                                        <Cell key={`cell-${idx}`} fill={GENRE_CHART_COLORS[idx % GENRE_CHART_COLORS.length]} />
+                                                    ))}
+                                                </Pie>
+                                                <Tooltip
+                                                    formatter={(value, name) => {
+                                                        const ticketCount = typeof value === "number" ? value : 0;
+                                                        const pct = totalTicketsForGenreStack > 0 ? ((ticketCount / totalTicketsForGenreStack) * 100).toFixed(1) : "0.0";
+                                                        return [`${ticketCount.toLocaleString()} tiket (${pct}%)`, name];
+                                                    }}
+                                                    contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px" }}
+                                                    itemStyle={{ color: "hsl(var(--foreground))" }}
+                                                />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <div className="h-[260px] w-full flex items-center justify-center text-sm text-muted-foreground">Belum ada data genre.</div>
+                                )}
+                            </div>
+                            <div className="w-full md:w-1/2 space-y-3">
+                                {genrePerformance.map((genre, idx) => {
+                                    const pct = totalTicketsForGenreStack > 0 ? (genre.tickets / totalTicketsForGenreStack) * 100 : 0;
+                                    return (
+                                        <div key={genre.name} className="space-y-1">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: GENRE_CHART_COLORS[idx % GENRE_CHART_COLORS.length] }} />
+                                                    <span className="font-medium">{genre.name}</span>
+                                                </div>
+                                                <span className="text-muted-foreground text-xs">{genre.tickets.toLocaleString()} · {pct.toFixed(1)}%</span>
+                                            </div>
+                                            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                                                <div
+                                                    className="h-full rounded-full"
+                                                    style={{ width: `${pct}%`, backgroundColor: GENRE_CHART_COLORS[idx % GENRE_CHART_COLORS.length] }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </section>
+
+            <Separator />
+
+            {/* ── SECTION 7 — RATING USIA ──────────────────────────────── */}
+            {ratingPerformance.length > 0 && (
+                <section className="space-y-4 text-foreground">
+                    <div>
+                        <h2 className="text-base font-semibold">Distribusi Rating Usia</h2>
+                        <p className="text-xs text-muted-foreground">Tiket terjual berdasarkan klasifikasi usia penonton.</p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-3">
+                        {ratingPerformance.map((rating) => {
+                            const totalRatingTickets = ratingPerformance.reduce((s, r) => s + r.tickets, 0);
+                            const pct = totalRatingTickets > 0 ? (rating.tickets / totalRatingTickets) * 100 : 0;
+                            const label = rating.name === "SU" ? "Semua Umur" : rating.name === "R13" ? "Usia 13+" : rating.name === "D17" ? "Usia 17+" : rating.name;
+                            return (
+                                <Card key={rating.name}>
+                                    <CardHeader className="pb-2">
+                                        <div className="flex items-center justify-between">
+                                            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                                                <Badge variant="secondary" className={RATING_COLORS[rating.name] || RATING_COLORS.default}>{rating.name}</Badge>
+                                                {label}
+                                            </CardTitle>
+                                            <span className="text-xs text-muted-foreground">{pct.toFixed(1)}%</span>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2">
+                                        <p className="text-xl font-bold">{rating.tickets.toLocaleString("id-ID")} <span className="text-sm font-normal text-muted-foreground">tiket</span></p>
+                                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                                            <div
+                                                className={`h-full rounded-full ${
+                                                    rating.name === "SU" ? "bg-green-500"
+                                                    : rating.name === "R13" ? "bg-amber-500"
+                                                    : "bg-red-500"
+                                                }`}
+                                                style={{ width: `${pct}%` }}
+                                            />
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            );
+                        })}
+                    </div>
+                </section>
+            )}
+        </div>
+    );
 }

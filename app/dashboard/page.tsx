@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { DateRange } from "react-day-picker";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
+import { cn } from "@/lib/utils";
 import {
   Activity,
+  AlertTriangle,
+  Bell,
+  BellOff,
+  ChevronRight,
   DollarSign,
   Gauge,
   MapPinned,
@@ -25,6 +29,7 @@ import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -57,12 +62,12 @@ import {
   getTopMovies,
   type AiInsightResponse,
   type CinemaBreakdownResponse,
-  type DashboardQuery,
   type HealthResponse,
   type OccupancyResponse,
   type SummaryResponse,
   type TopMovie,
 } from "@/lib/cinetrack-api";
+import { useDashboardUrlFilters } from "@/hooks/use-dashboard-url-filters";
 
 type DashboardPayload = {
   summary: SummaryResponse | null;
@@ -71,6 +76,7 @@ type DashboardPayload = {
   topMovies: TopMovie[] | null;
   health: HealthResponse | null;
   insight: AiInsightResponse | null;
+  insightHistory: AiInsightResponse[];
 };
 
 type DashboardErrors = Partial<Record<keyof DashboardPayload, string>>;
@@ -125,39 +131,6 @@ const formatGrowthLabel = (value: number) => {
   return value >= 0 ? `+${formatted}` : `-${formatted}`;
 };
 
-const formatQueryDate = (date: Date) => format(date, "yyyy-MM-dd");
-
-function getDefaultDateRange(): DateRange {
-  const today = new Date();
-  return {
-    from: today,
-    to: today,
-  };
-}
-
-function buildQuery(
-  selectedCity: string,
-  selectedCinema: string,
-  selectedDateRange: DateRange | undefined
-): DashboardQuery {
-  const query: DashboardQuery = {};
-
-  if (selectedCity !== "all") {
-    query.city = selectedCity;
-  }
-
-  if (selectedCinema !== "all") {
-    query.cinema_id = selectedCinema;
-  }
-
-  if (selectedDateRange?.from) {
-    query.start_date = formatQueryDate(selectedDateRange.from);
-    query.end_date = formatQueryDate(selectedDateRange.to ?? selectedDateRange.from);
-  }
-
-  return query;
-}
-
 function getErrorMessage(reason: unknown, fallback: string) {
   return reason instanceof Error ? reason.message : fallback;
 }
@@ -190,9 +163,19 @@ function MetricCardSkeleton() {
 }
 
 export default function DashboardPage() {
-  const [selectedCity, setSelectedCity] = useState("all");
-  const [selectedCinema, setSelectedCinema] = useState("all");
-  const [selectedDateRange, setSelectedDateRange] = useState<DateRange | undefined>(getDefaultDateRange);
+  const {
+    selectedCity,
+    selectedCinema,
+    dateRange,
+    setCity,
+    setCinema,
+    setDateRange,
+    hrefWithFilters,
+    apiQuery: query,
+  } = useDashboardUrlFilters();
+
+  const [filtersLoading, setFiltersLoading] = useState(true);
+
   const [data, setData] = useState<DashboardPayload>({
     summary: null,
     cinemas: null,
@@ -200,18 +183,44 @@ export default function DashboardPage() {
     topMovies: null,
     health: null,
     insight: null,
+    insightHistory: [],
   });
   const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
   const [multiCityOccupancyData, setMultiCityOccupancyData] = useState<MultiCityOccupancyPoint[]>([]);
   const [multiCityOccupancyKeys, setMultiCityOccupancyKeys] = useState<string[]>([]);
 
-  const query = useMemo(
-    () => buildQuery(selectedCity, selectedCinema, selectedDateRange),
-    [selectedCity, selectedCinema, selectedDateRange]
-  );
+  useEffect(() => {
+    if (dateRange?.from) {
+      setFiltersLoading(false);
+      return;
+    }
+    let cancelled = false;
+    getSystemHealth().then((h) => {
+      if (cancelled) return;
+      if (h.last_data_in) {
+        const end = new Date(h.last_data_in);
+        setDateRange({ from: subDays(end, 6), to: end });
+      }
+      setFiltersLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dateRange?.from, setDateRange]);
 
   useEffect(() => {
+    if (selectedCinema === "all" || !data.cinemas) return;
+    const valid = data.cinemas.breakdown.some(
+      (c) =>
+        c.cinema_id === selectedCinema &&
+        (selectedCity === "all" || c.city === selectedCity)
+    );
+    if (!valid) setCinema("all");
+  }, [data.cinemas, selectedCinema, selectedCity, setCinema]);
+
+  useEffect(() => {
+    if (filtersLoading) return;
     let cancelled = false;
 
     const loadDashboard = async () => {
@@ -229,13 +238,31 @@ export default function DashboardPage() {
 
       if (cancelled) return;
 
-      setData({
-        summary: results[0].status === "fulfilled" ? results[0].value : null,
-        cinemas: results[1].status === "fulfilled" ? results[1].value : null,
-        occupancy: results[2].status === "fulfilled" ? results[2].value : null,
-        topMovies: results[3].status === "fulfilled" ? results[3].value : null,
-        health: results[4].status === "fulfilled" ? results[4].value : null,
-        insight: results[5].status === "fulfilled" ? results[5].value : null,
+      setData((prev) => {
+        const newInsight = results[5].status === "fulfilled" ? results[5].value : null;
+        const currentHistory = prev.insightHistory || [];
+
+        let updatedHistory = currentHistory;
+        if (newInsight && newInsight.period?.label) {
+          const exists = currentHistory.some(h => h.period?.label === newInsight.period.label);
+          if (!exists) {
+            updatedHistory = [newInsight, ...currentHistory].slice(0, 10);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('cinetrack_insight_history', JSON.stringify(updatedHistory));
+            }
+          }
+        }
+
+        return {
+          ...prev,
+          summary: results[0].status === "fulfilled" ? results[0].value : null,
+          cinemas: results[1].status === "fulfilled" ? results[1].value : null,
+          occupancy: results[2].status === "fulfilled" ? results[2].value : null,
+          topMovies: results[3].status === "fulfilled" ? results[3].value : null,
+          health: results[4].status === "fulfilled" ? results[4].value : null,
+          insight: newInsight,
+          insightHistory: updatedHistory,
+        };
       });
 
       setErrors({
@@ -273,7 +300,21 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, filtersLoading]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('cinetrack_insight_history');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setData(prev => ({ ...prev, insightHistory: parsed }));
+        } catch (e) {
+          console.error("Failed to parse insight history", e);
+        }
+      }
+    }
+  }, []);
 
   const cityOptions = useMemo(() => {
     if (!data.cinemas) return [{ id: "all", name: "All City" }];
@@ -309,23 +350,23 @@ export default function DashboardPage() {
     const grouped = data.cinemas.breakdown.reduce((acc, cinema) => {
       const coordinates = cityCoordinates[cinema.city] ?? [106.8456, -6.2088];
 
-        if (!acc[cinema.city]) {
-          acc[cinema.city] = {
-            name: cinema.city,
-            totalNodes: 0,
-            activeNodes: 0,
-            nonActiveNodes: 0,
-            occupancy: 0,
-            occupancyCount: 0,
-            totalTickets: 0,
-            revenue: 0,
-            coordinates,
-          };
-        }
+      if (!acc[cinema.city]) {
+        acc[cinema.city] = {
+          name: cinema.city,
+          totalNodes: 0,
+          activeNodes: 0,
+          nonActiveNodes: 0,
+          occupancy: 0,
+          occupancyCount: 0,
+          totalTickets: 0,
+          revenue: 0,
+          coordinates,
+        };
+      }
 
-        acc[cinema.city].totalNodes += 1;
-        acc[cinema.city].totalTickets += cinema.metrics.total_tickets;
-        acc[cinema.city].revenue += cinema.metrics.total_revenue;
+      acc[cinema.city].totalNodes += 1;
+      acc[cinema.city].totalTickets += cinema.metrics.total_tickets;
+      acc[cinema.city].revenue += cinema.metrics.total_revenue;
 
       if (cinema.metrics.active_studios > 0) {
         acc[cinema.city].activeNodes += 1;
@@ -462,27 +503,21 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Cinema Operations Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Overview of your cinema operations.</p>
-            {loading ? (
-              <Skeleton className="mt-2 h-3 w-40" />
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {`Data from ${formatPeriod(data.summary?.meta.period)}`}
-              </p>
-            )}
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Cinema Operations Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Overview of your cinema operations.</p>
+          {loading ? (
+            <Skeleton className="mt-2 h-3 w-40" />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {`Data from ${formatPeriod(data.summary?.meta.period)}`}
+            </p>
+          )}
+        </div>
 
         <div className="w-full max-w-5xl">
           <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(220px,1fr)]">
-            <Select
-              value={selectedCity}
-              onValueChange={(value) => {
-                setSelectedCity(value);
-                setSelectedCinema("all");
-              }}
-            >
+            <Select value={selectedCity} onValueChange={setCity}>
               <SelectTrigger className="h-15 w-full min-w-0">
                 <SelectValue placeholder="Select City" />
               </SelectTrigger>
@@ -495,7 +530,7 @@ export default function DashboardPage() {
               </SelectContent>
             </Select>
 
-            <Select value={selectedCinema} onValueChange={setSelectedCinema}>
+            <Select value={selectedCinema} onValueChange={setCinema}>
               <SelectTrigger className="h-15 w-full min-w-0">
                 <SelectValue placeholder="Select Franchise" />
               </SelectTrigger>
@@ -509,8 +544,8 @@ export default function DashboardPage() {
             </Select>
 
             <DateRangeFilter
-              value={selectedDateRange}
-              onApply={setSelectedDateRange}
+              value={dateRange}
+              onApply={setDateRange}
               triggerLabel="Select Period"
             />
           </div>
@@ -684,9 +719,6 @@ export default function DashboardPage() {
                   : "Latest AI-generated operational insight"}
               </p>
             </div>
-            <Button variant="ghost" size="sm" disabled className="shrink-0">
-              Lihat Semua
-            </Button>
           </div>
         </CardHeader>
         <CardContent>

@@ -3,19 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import {
-  LayoutDashboard,
-  Video,
-  BarChart2,
-  Bell,
-  Settings,
-  Clapperboard,
-  PanelLeft,
-  Loader2,
-} from "lucide-react";
+import { Clapperboard, PanelLeft, Loader2 } from "lucide-react";
 import { useUser } from "@/firebase";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getDashboardNotifications } from "@/lib/cinetrack-api";
+import {
+  DashboardBrandLink,
+  DashboardSidebarNav,
+} from "@/components/dashboard/dashboard-sidebar-nav";
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -79,11 +74,6 @@ function LiveClock() {
   );
 }
 
-function isMenuActive(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/dashboard";
-  return pathname === href || pathname.startsWith(href + "/");
-}
-
 export default function DashboardLayout({
   children,
 }: {
@@ -93,16 +83,13 @@ export default function DashboardLayout({
   const { user, loading } = useUser();
   const [collapsed, setCollapsed] = useState(false);
 
-  const menuUtama = [
-    { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-    { href: "/dashboard/films", icon: Video, label: "Film Performance" },
-    { href: "/dashboard/sales", icon: BarChart2, label: "Sales Analytics" },
-  ];
+  const [notifCount, setNotifCount] = useState<number | null>(null);
 
-  const sistemMenu = [
-    { href: "/dashboard/notifications", icon: Bell, label: "Notifikasi", badge: "4" },
-    { href: "/dashboard/settings", icon: Settings, label: "Pengaturan" },
-  ];
+  useEffect(() => {
+    getDashboardNotifications()
+      .then((data) => setNotifCount(data.length))
+      .catch(() => setNotifCount(null));
+  }, []);
 
   const titleMap: Record<string, string> = {
     "/dashboard/films": "FILM PERFORMANCE",
@@ -135,13 +122,6 @@ export default function DashboardLayout({
     );
   }
 
-  const menuLinkClass = (active: boolean, collapsed: boolean) =>
-    cn(
-      "group flex items-center rounded-2xl text-sm font-medium transition",
-      active ? "bg-zinc-100 text-zinc-900" : "text-zinc-900 hover:bg-zinc-50",
-      collapsed ? "justify-center px-0 py-3" : "gap-3 px-5 py-4"
-    );
-
   return (
     <div className="flex min-h-screen w-full bg-[#f8f9fb] text-zinc-900">
       <aside
@@ -151,10 +131,7 @@ export default function DashboardLayout({
         )}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 p-6">
-          <Link
-            href="/dashboard"
-            className={cn("flex min-w-0 items-center", collapsed ? "justify-center" : "gap-3")}
-          >
+          <DashboardBrandLink collapsed={collapsed}>
             <Clapperboard className="h-8 w-8 shrink-0 text-red-500" />
             {!collapsed && (
               <div className="min-w-0">
@@ -164,61 +141,11 @@ export default function DashboardLayout({
                 <div className="-mt-0.5 text-xs text-zinc-500">Analytics Platform</div>
               </div>
             )}
-          </Link>
-
+          </DashboardBrandLink>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
-          <div className="mb-8">
-            {!collapsed && (
-              <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                MENU UTAMA
-              </div>
-            )}
-            <ul className="space-y-2">
-              {menuUtama.map((item) => {
-                const active = isMenuActive(pathname, item.href);
-                const Icon = item.icon;
-
-                return (
-                  <li key={item.label}>
-                    <Link href={item.href} className={menuLinkClass(active, collapsed)}>
-                      <Icon className="h-5 w-5 shrink-0" />
-                      {!collapsed && <span>{item.label}</span>}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          <div>
-            {!collapsed && (
-              <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                SISTEM
-              </div>
-            )}
-            <ul className="space-y-2">
-              {sistemMenu.map((item) => {
-                const active = isMenuActive(pathname, item.href);
-                const Icon = item.icon;
-
-                return (
-                  <li key={item.label}>
-                    <Link href={item.href} className={menuLinkClass(active, collapsed)}>
-                      <Icon className="h-5 w-5 shrink-0" />
-                      {!collapsed && <span>{item.label}</span>}
-                      {!collapsed && item.badge && (
-                        <Badge className="ml-auto bg-red-500 text-white hover:bg-red-500">
-                          {item.badge}
-                        </Badge>
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+          <DashboardSidebarNav collapsed={collapsed} notifCount={notifCount} />
         </div>
 
         <div className="mt-auto border-t border-zinc-200 p-6">

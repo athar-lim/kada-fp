@@ -1,70 +1,32 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AlertTriangle, Bell, Clapperboard, Server, TrendingDown, TrendingUp } from "lucide-react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import {
+  AlertTriangle,
+  Bell,
+  BellOff,
+  BrainCircuit,
+  CheckCircle2,
+  Clapperboard,
+  Clock,
+  LightbulbIcon,
+  Server,
+  Sparkles,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 
-const notifications = [
-  {
-    id: "ALT-001",
-    type: "system_issue",
-    severity: "critical",
-    title: "Node Offline",
-    what: "CineTrack Palembang has stopped responding since 08:15 WIB.",
-    where: "Palembang",
-    impact: "All live monitoring and schedule sync from this node are currently unavailable.",
-    action: "Escalate to operations and network support, then redirect manual monitoring to the local branch team.",
-    createdAt: "06:17 WIB",
-  },
-  {
-    id: "ALT-002",
-    type: "occupancy_anomaly",
-    severity: "warning",
-    title: "Low Occupancy",
-    what: "CGV Semarang dropped to 38% occupancy and fell below the 40% threshold.",
-    where: "Semarang",
-    impact: "Around 120 seats per day are currently underutilized in the active schedule mix.",
-    action: "Reduce weak slots or move the film into a smaller studio before applying discounts.",
-    createdAt: "01:42 WIB",
-  },
-  {
-    id: "ALT-003",
-    type: "revenue_spike",
-    severity: "opportunity",
-    title: "New Revenue Record",
-    what: "West Jakarta set the highest single-day sales result across the network.",
-    where: "West Jakarta",
-    impact: "Daily ticket volume rose 22% above the local baseline.",
-    action: "Add prime-time capacity and protect margin with tighter pricing on peak slots.",
-    createdAt: "01:53 WIB",
-  },
-  {
-    id: "ALT-004",
-    type: "early_blockbuster",
-    severity: "opportunity",
-    title: "Early Blockbuster Signal",
-    what: "Nusantara Rising shows a fast sales ramp and fully activated studios ahead of release day.",
-    where: "Network-wide",
-    impact: "Projected opening-day demand is 1.4x above the current benchmark.",
-    action: "Open additional screenings early and shift marketing spend to conversion-focused campaigns.",
-    createdAt: "Yesterday 18:00",
-  },
-  {
-    id: "ALT-005",
-    type: "prediction_warning",
-    severity: "warning",
-    title: "Prediction Warning",
-    what: "Bandung is projected to soften by 12% if the current weekday pattern continues.",
-    where: "Bandung",
-    impact: "Expected revenue loss is about Rp 18M over the next forecast window.",
-    action: "Refresh weekday scheduling and test a narrower promo on weak time slots instead of full-day discounts.",
-    createdAt: "00:35 WIB",
-  },
-];
+import { getDashboardNotifications, type DashboardNotification, type AiInsightResponse } from "@/lib/cinetrack-api";
 
-// Helper ini menentukan ikon yang paling cocok untuk tiap jenis alert.
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
 const getNotificationIcon = (type: string) => {
   if (type === "system_issue") return Server;
   if (type === "revenue_spike") return TrendingUp;
@@ -73,189 +35,478 @@ const getNotificationIcon = (type: string) => {
   return AlertTriangle;
 };
 
-// Helper ini memberi warna badge agar severity cepat terbaca di feed.
-const getSeverityClass = (severity: string) => {
-  if (severity === "critical") {
-    return "bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400";
-  }
-  if (severity === "warning") {
-    return "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400";
-  }
-  if (severity === "opportunity") {
-    return "bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400";
-  }
-  return "bg-secondary text-secondary-foreground";
+const getSeverityConfig = (severity: string) => {
+  if (severity === "critical") return {
+    badgeClass: "bg-red-100 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400",
+    borderClass: "border-l-red-500",
+    iconBg: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800",
+    iconColor: "text-red-600 dark:text-red-400",
+    label: "Kritis",
+  };
+  if (severity === "warning") return {
+    badgeClass: "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400",
+    borderClass: "border-l-amber-500",
+    iconBg: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800",
+    iconColor: "text-amber-600 dark:text-amber-400",
+    label: "Peringatan",
+  };
+  if (severity === "opportunity") return {
+    badgeClass: "bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400",
+    borderClass: "border-l-green-500",
+    iconBg: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800",
+    iconColor: "text-green-600 dark:text-green-400",
+    label: "Peluang",
+  };
+  return {
+    badgeClass: "bg-secondary text-secondary-foreground",
+    borderClass: "border-l-muted",
+    iconBg: "bg-muted border-border",
+    iconColor: "text-muted-foreground",
+    label: "Info",
+  };
 };
 
-// Page ini menyusun alert berdasarkan severity supaya aksi harian lebih mudah diprioritaskan.
+const getImpactConfig = (level?: string) => {
+  if (!level) return { class: "bg-muted text-muted-foreground border-border", label: "—" };
+  const l = level.toLowerCase();
+  if (l === "high" || l === "kritis") return { class: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-200", label: "High Impact" };
+  if (l === "medium") return { class: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200", label: "Medium Impact" };
+  return { class: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-200", label: "Low Impact" };
+};
+
+// ─── Page ────────────────────────────────────────────────────────────────────
+
+type Tab = "all" | "system" | "ai";
+
 export default function NotificationsPage() {
+  const [activeTab, setActiveTab] = useState<Tab>("all");
   const [selectedSeverity, setSelectedSeverity] = useState("all");
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
+  const [aiInsights, setAiInsights] = useState<AiInsightResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let unmounted = false;
+    getDashboardNotifications()
+      .then((data) => { if (!unmounted) { setNotifications(data); setLoading(false); } })
+      .catch((err) => { console.error("Failed to load notifications", err); if (!unmounted) setLoading(false); });
+
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("cinetrack_insight_history");
+      if (saved) {
+        try { setAiInsights(JSON.parse(saved)); } catch (e) { console.error(e); }
+      }
+    }
+    return () => { unmounted = true; };
+  }, []);
+
+  const clearAllInsights = useCallback(() => {
+    localStorage.removeItem("cinetrack_insight_history");
+    setAiInsights([]);
+  }, []);
+
+  const deleteInsight = useCallback((index: number) => {
+    setAiInsights((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      localStorage.setItem("cinetrack_insight_history", JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const filteredNotifications = useMemo(() => {
     if (selectedSeverity === "all") return notifications;
     return notifications.filter((item) => item.severity === selectedSeverity);
-  }, [selectedSeverity]);
+  }, [selectedSeverity, notifications]);
 
-  const summary = useMemo(() => {
-    return notifications.reduce(
-      (acc, item) => {
-        acc.total += 1;
-        acc[item.severity] += 1;
-        return acc;
-      },
-      { total: 0, critical: 0, warning: 0, opportunity: 0 }
-    );
-  }, []);
+  const summary = useMemo(() => notifications.reduce(
+    (acc, item) => { acc.total += 1; const s = item.severity as keyof typeof acc; if (s in acc) acc[s] += 1; return acc; },
+    { total: 0, critical: 0, warning: 0, opportunity: 0 }
+  ), [notifications]);
 
-  const groupedNotifications = useMemo(() => {
-    return {
-      critical: filteredNotifications.filter((item) => item.severity === "critical"),
-      warning: filteredNotifications.filter((item) => item.severity === "warning"),
-      opportunity: filteredNotifications.filter((item) => item.severity === "opportunity"),
-    };
-  }, [filteredNotifications]);
+  const groupedNotifications = useMemo(() => ({
+    critical: filteredNotifications.filter((item) => item.severity === "critical"),
+    warning: filteredNotifications.filter((item) => item.severity === "warning"),
+    opportunity: filteredNotifications.filter((item) => item.severity === "opportunity"),
+  }), [filteredNotifications]);
+
+  const totalAlerts = summary.total + aiInsights.length;
+
+  // Severity filter pill buttons — shown on "all" and "system" tabs
+  const SeverityFilter = () => (
+    <div className="flex flex-wrap gap-2">
+      {[
+        { value: "all", label: "Semua", count: summary.total },
+        { value: "critical", label: "Kritis", dot: "bg-red-500" as const, count: summary.critical },
+        { value: "warning", label: "Peringatan", dot: "bg-amber-500" as const, count: summary.warning },
+        { value: "opportunity", label: "Peluang", dot: "bg-green-500" as const, count: summary.opportunity },
+      ].map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          onClick={() => setSelectedSeverity(item.value)}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition ${
+            selectedSeverity === item.value
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-card text-foreground hover:bg-muted"
+          }`}
+        >
+          {"dot" in item && <span className={`h-2 w-2 rounded-full ${item.dot}`} />}
+          {item.label}
+          {item.count > 0 && (
+            <span className={`rounded-full px-1.5 text-[10px] font-bold ${
+              selectedSeverity === item.value ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+            }`}>{item.count}</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <main className="space-y-8 text-foreground">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
+      {/* ── HEADER ── */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Notifications & Alerts</h1>
-          <p className="text-sm text-muted-foreground">
-            Critical issue first, then anomaly, opportunity, and the recommended action.
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">Notifications &amp; Alerts</h1>
+            {totalAlerts > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">
+                {totalAlerts}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Pusat notifikasi sistem dan riwayat temuan AI. Dilengkapi konteks, dampak, dan rekomendasi tindakan.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {[
-            { value: "all", label: "All" },
-            { value: "critical", label: "Critical" },
-            { value: "warning", label: "Warning" },
-            { value: "opportunity", label: "Opportunity" },
-          ].map((item) => (
+        {/* Tab switcher */}
+        <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/40 p-1 self-start">
+          {([
+            { id: "all", label: "Semua", count: totalAlerts },
+            { id: "system", label: "Sistem", count: summary.total },
+            { id: "ai", label: "AI Insights", count: aiInsights.length },
+          ] as const).map((t) => (
             <button
-              key={item.value}
+              key={t.id}
               type="button"
-              onClick={() => setSelectedSeverity(item.value)}
-              className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                selectedSeverity === item.value
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-foreground"
+              onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                activeTab === t.id
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {item.label}
+              {t.label}
+              {t.count > 0 && (
+                <span className={`rounded-full px-1.5 py-0 text-[10px] font-bold ${
+                  activeTab === t.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                }`}>{t.count}</span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+      {/* ── SUMMARY CARDS ── */}
+      <div className="grid gap-4 grid-cols-2 xl:grid-cols-5">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Alerts</CardTitle>
-            <Bell className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Total Alert</CardTitle>
+              <Bell className="h-4 w-4 text-muted-foreground" />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.total}</div>
+            <p className="text-xs text-muted-foreground mt-1">Notifikasi sistem aktif</p>
+            {summary.total > 0 && (
+              <div className="mt-2 flex gap-1">
+                {summary.critical > 0 && <div className="h-1.5 rounded-full bg-red-500" style={{ width: `${(summary.critical / summary.total) * 100}%` }} />}
+                {summary.warning > 0 && <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${(summary.warning / summary.total) * 100}%` }} />}
+                {summary.opportunity > 0 && <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${(summary.opportunity / summary.total) * 100}%` }} />}
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Critical</CardTitle>
-            <Server className="h-4 w-4 text-red-500" />
+        <Card className="border-l-4 border-l-red-500">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Kritis</CardTitle>
+              <Zap className="h-4 w-4 text-red-500" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary.critical}</div>
+            <div className="text-2xl font-bold text-red-600">{summary.critical}</div>
+            <p className="text-xs text-muted-foreground mt-1">Butuh perhatian segera</p>
+            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div className="h-full rounded-full bg-red-500" style={{ width: summary.total > 0 ? `${(summary.critical / summary.total) * 100}%` : "0%" }} />
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Warnings</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
+        <Card className="border-l-4 border-l-amber-500">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Peringatan</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary.warning}</div>
+            <div className="text-2xl font-bold text-amber-600">{summary.warning}</div>
+            <p className="text-xs text-muted-foreground mt-1">Anomali performa</p>
+            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div className="h-full rounded-full bg-amber-500" style={{ width: summary.total > 0 ? `${(summary.warning / summary.total) * 100}%` : "0%" }} />
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Opportunities</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
+        <Card className="border-l-4 border-l-green-500">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Peluang</CardTitle>
+              <TrendingUp className="h-4 w-4 text-green-500" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary.opportunity}</div>
+            <div className="text-2xl font-bold text-green-600">{summary.opportunity}</div>
+            <p className="text-xs text-muted-foreground mt-1">Potensi optimasi</p>
+            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div className="h-full rounded-full bg-green-500" style={{ width: summary.total > 0 ? `${(summary.opportunity / summary.total) * 100}%` : "0%" }} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-primary col-span-2 xl:col-span-1">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">AI Insights</CardTitle>
+              <Sparkles className="h-4 w-4 text-primary animate-pulse" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-primary">{aiInsights.length}</div>
+            <p className="text-xs text-muted-foreground mt-1">Temuan AI tersimpan</p>
+            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div className="h-full rounded-full bg-primary" style={{ width: aiInsights.length > 0 ? "100%" : "0%" }} />
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {[
-        { key: "critical", title: "Critical Issues", items: groupedNotifications.critical },
-        { key: "warning", title: "Performance Anomalies", items: groupedNotifications.warning },
-        { key: "opportunity", title: "Opportunities", items: groupedNotifications.opportunity },
-      ].map((group) => (
-        <section key={group.key} className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold">{group.title}</h2>
-            <p className="text-sm text-muted-foreground">
-              Each alert explains what happened, where it happened, the impact, and the next action.
-            </p>
-          </div>
+      {/* ── SEVERITY FILTER (always shown on all/system tabs) ── */}
+      {(activeTab === "all" || activeTab === "system") && (
+        <SeverityFilter />
+      )}
 
-          {group.items.length > 0 ? (
-            <div className="grid gap-4">
-              {group.items.map((item) => {
-                const Icon = getNotificationIcon(item.type);
+      {/* ── SYSTEM ALERTS ── */}
+      {(activeTab === "all" || activeTab === "system") && (
+        <>
+          {loading ? (
+            <Card>
+              <CardContent className="py-12 flex flex-col items-center gap-3">
+                <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                <p className="text-sm text-muted-foreground">Memuat notifikasi sistem...</p>
+              </CardContent>
+            </Card>
+          ) : notifications.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
+                <CheckCircle2 className="h-12 w-12 text-green-500/40" />
+                <p className="text-sm font-medium text-muted-foreground">Tidak ada alert sistem aktif.</p>
+                <p className="text-xs text-muted-foreground">Semua operasional berjalan normal.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {([
+                { key: "critical", title: "Isu Kritis", icon: Zap, items: groupedNotifications.critical, colorClass: "text-red-600" },
+                { key: "warning", title: "Anomali Performa", icon: AlertTriangle, items: groupedNotifications.warning, colorClass: "text-amber-600" },
+                { key: "opportunity", title: "Peluang Optimasi", icon: LightbulbIcon, items: groupedNotifications.opportunity, colorClass: "text-green-600" },
+              ].map((group) => {
+                const Icon = group.icon;
+                // In "all" mode, skip empty groups; in "system" mode, always show all groups
+                if (activeTab === "all" && group.items.length === 0) return null;
 
                 return (
-                  <Card key={item.id}>
-                    <CardHeader className="space-y-3">
+                  <section key={group.key} className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Icon className={`h-5 w-5 ${group.colorClass}`} />
+                      <h2 className={`text-base font-semibold ${group.colorClass}`}>{group.title}</h2>
+                      <Separator className="flex-1" />
+                      <span className="text-xs text-muted-foreground">{group.items.length} alert</span>
+                    </div>
+
+                    {group.items.length > 0 ? (
+                      <div className="grid gap-4">
+                        {group.items.map((item, index) => {
+                          const ItemIcon = getNotificationIcon(item.type);
+                          const cfg = getSeverityConfig(item.severity);
+                          return (
+                            <Card key={item.id || `notif-${index}`} className={`border-l-4 ${cfg.borderClass}`}>
+                              <CardHeader className="pb-3">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex items-start gap-3">
+                                    <div className={`mt-0.5 rounded-xl border p-2 ${cfg.iconBg}`}>
+                                      <ItemIcon className={`h-4 w-4 ${cfg.iconColor}`} />
+                                    </div>
+                                    <div>
+                                      <CardTitle className="text-sm font-semibold">{item.title}</CardTitle>
+                                      <CardDescription className="flex items-center gap-1 mt-1">
+                                        <Clock className="h-3 w-3" />
+                                        {item.createdAt}
+                                      </CardDescription>
+                                    </div>
+                                  </div>
+                                  <Badge className={cfg.badgeClass}>{cfg.label}</Badge>
+                                </div>
+                              </CardHeader>
+
+                              <CardContent className="grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                                {[
+                                  { label: "Kejadian", value: item.what },
+                                  { label: "Lokasi", value: item.where },
+                                  { label: "Dampak", value: item.impact },
+                                  { label: "Tindakan", value: item.action, highlight: true },
+                                ].map((col) => (
+                                  <div key={col.label} className={col.highlight ? "rounded-xl bg-primary/5 p-3 border border-primary/10" : ""}>
+                                    <p className={`text-[10px] font-bold uppercase tracking-widest ${col.highlight ? "text-primary/80" : "text-muted-foreground"}`}>
+                                      {col.label}
+                                    </p>
+                                    <p className={`mt-1 text-sm ${col.highlight ? "font-medium text-foreground" : "text-muted-foreground"}`}>
+                                      {col.value}
+                                    </p>
+                                  </div>
+                                ))}
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <Card>
+                        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                          Tidak ada alert di kategori ini.
+                        </CardContent>
+                      </Card>
+                    )}
+                  </section>
+                );
+              }))}
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── AI INSIGHTS HISTORY ── */}
+      {(activeTab === "all" || activeTab === "ai") && (
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <BrainCircuit className="h-5 w-5 text-primary" />
+            <h2 className="text-base font-semibold text-primary">AI Operational Intelligence History</h2>
+            <Separator className="flex-1" />
+            <span className="text-xs text-muted-foreground">{aiInsights.length} temuan tersimpan</span>
+            {aiInsights.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={clearAllInsights}
+              >
+                <Trash2 className="h-3 w-3" />
+                Hapus Semua
+              </Button>
+            )}
+          </div>
+
+          {aiInsights.length > 0 ? (
+            <div className="grid gap-4">
+              {aiInsights.map((item, index) => {
+                const impactCfg = getImpactConfig(item.cards?.impact_level ?? item.analysis?.impact_level);
+                const actionItems: string[] = item.analysis?.action_items ?? (item as any).action_items ?? [];
+                const category = item.cards?.category ?? item.analysis?.category ?? "AI Analysis";
+                const headline = item.cards?.headline ?? item.analysis?.title;
+                const summary = item.cards?.summary ?? item.analysis?.description;
+                const recommendation = item.cards?.recommendation ?? item.analysis?.recommendation;
+
+                return (
+                  <Card key={`ai-${index}`} className="border-l-4 border-l-primary">
+                    <CardHeader className="pb-3">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-start gap-3">
-                          <div className="rounded-full border border-border bg-muted/40 p-2">
-                            <Icon className="h-4 w-4 text-muted-foreground" />
+                          <div className="mt-0.5 rounded-xl border border-primary/20 bg-primary/10 p-2 shrink-0">
+                            <Sparkles className="h-4 w-4 text-primary" />
                           </div>
-                          <div>
-                            <CardTitle className="text-base">{item.title}</CardTitle>
-                            <CardDescription>{item.createdAt}</CardDescription>
+                          <div className="min-w-0">
+                            <CardTitle className="text-sm font-semibold leading-snug">{headline}</CardTitle>
+                            <CardDescription className="flex items-center gap-1 mt-1">
+                              <Clock className="h-3 w-3 shrink-0" />
+                              {item.period?.label ?? "—"}
+                            </CardDescription>
                           </div>
                         </div>
-
-                        <Badge className={getSeverityClass(item.severity)}>
-                          {item.severity}
-                        </Badge>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-wrap gap-1.5 justify-end">
+                            <Badge variant="outline" className="capitalize text-[10px]">{category}</Badge>
+                            <Badge variant="outline" className={`text-[10px] capitalize border ${impactCfg.class}`}>
+                              {impactCfg.label}
+                            </Badge>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => deleteInsight(index)}
+                            title="Hapus insight ini"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </CardHeader>
 
-                    <CardContent className="grid gap-4 lg:grid-cols-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          What Happened
-                        </p>
-                        <p className="mt-1 text-sm">{item.what}</p>
+                    <CardContent className="space-y-4 border-t pt-4">
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                            Analisis &amp; Temuan
+                          </p>
+                          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                            {summary}
+                          </p>
+                        </div>
+                        {recommendation && (
+                          <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
+                              Rekomendasi Tindakan
+                            </p>
+                            <p className="mt-2 text-sm font-medium text-foreground leading-relaxed">
+                              {recommendation}
+                            </p>
+                          </div>
+                        )}
                       </div>
 
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Where
-                        </p>
-                        <p className="mt-1 text-sm">{item.where}</p>
-                      </div>
-
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Impact Size
-                        </p>
-                        <p className="mt-1 text-sm">{item.impact}</p>
-                      </div>
-
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Recommended Action
-                        </p>
-                        <p className="mt-1 text-sm">{item.action}</p>
-                      </div>
+                      {actionItems.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                            Action Items
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                            {actionItems.slice(0, 6).map((li, i) => (
+                              <div
+                                key={i}
+                                className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+                              >
+                                <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
+                                {li}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );
@@ -263,13 +514,17 @@ export default function NotificationsPage() {
             </div>
           ) : (
             <Card>
-              <CardContent className="py-10 text-center text-muted-foreground">
-                No alerts in this severity for the current filter.
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
+                <BellOff className="h-12 w-12 text-muted-foreground/20" />
+                <p className="text-sm font-medium text-muted-foreground">Belum ada riwayat AI insight tersimpan.</p>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  Kunjungi dasbor utama hingga AI insight dimuat. Setiap insight baru akan otomatis tersimpan di sini.
+                </p>
               </CardContent>
             </Card>
           )}
         </section>
-      ))}
+      )}
     </main>
   );
 }
