@@ -44,6 +44,10 @@ import {
 import { Clock, Ticket, DollarSign, Calendar, AlertTriangle, Clock4, ArrowUp, ArrowDown, FileDown } from 'lucide-react';
 import { DateRangeFilter } from '@/components/filters/date-range-filter';
 import { Button } from '@/components/ui/button';
+import {
+  DashboardMetricCard,
+  DashboardSectionHeader,
+} from "@/components/dashboard/dashboard-ui-blocks";
 
 import {
   getCities,
@@ -54,10 +58,9 @@ import {
   type SalesAnalyticsBundlePayload,
 } from "@/lib/cinetrack-api";
 import { useDashboardUrlFilters } from "@/hooks/use-dashboard-url-filters";
+import { getOccupancyTextClass } from "@/lib/dashboard-ui";
 
-// ===========================
-// TYPE DEFININTS
-// ===========================
+// --- Types ---
 
 type SalesPayload = {
   overview: SalesAnalyticsBundlePayload["overview"] | null;
@@ -70,18 +73,34 @@ type SalesPayload = {
   operationalRisk: SalesAnalyticsBundlePayload["operational_risk"] | null;
 };
 
-// ===========================
-// STYLE HELPERS & UTILS
-// ===========================
+// --- Helpers ---
 
 const formatCurrency = (value: number | undefined | null) => {
     if (value == null) return "-";
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
+<<<<<<< HEAD
 // ===========================
 // PAGE COMPONENT
 // ===========================
+=======
+const normalizeRecommendation = (text: string) => {
+    return text
+        .replace(
+            /Demand bagus,\s*evaluasi harga dan alokasi studio agar monetisasi naik\./gi,
+            "Demand is strong, evaluate pricing and studio allocation to increase monetization."
+        )
+        .replace(/Demand bagus/gi, "Demand is strong")
+        .replace(/evaluasi harga/gi, "review pricing")
+        .replace(/alokasi studio/gi, "studio allocation")
+        .replace(/monetisasi naik/gi, "increase monetization")
+        .replace(/\s+/g, " ")
+        .trim();
+};
+
+// --- Component ---
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
 
 export default function SalesAnalyticsPage() {
     const {
@@ -352,7 +371,7 @@ export default function SalesAnalyticsPage() {
 
     // ── Auto-computed insights ──────────────────────────────────────────────
     const topMovie = revenuePerMovie[0];
-    const winnerPeriod = dashboardData.weekendWeekday?.summary?.winning_period;
+    const winningPeriod = dashboardData.weekendWeekday?.summary?.winning_period;
     const revGap = dashboardData.weekendWeekday?.summary?.revenue_gap;
     const topPayment = paymentBreakdownRows[0];
     const avgOccupancy = occupancyPerCinema.length
@@ -372,11 +391,17 @@ export default function SalesAnalyticsPage() {
             color: "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400",
         });
 
-    if (winnerPeriod && revGap != null)
+    if (winningPeriod && revGap != null)
         insightBanners.push({
+<<<<<<< HEAD
             icon: winnerPeriod === "weekend" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />,
             text: `${winnerPeriod === "weekend" ? "Akhir pekan unggul" : "Hari kerja unggul"} selisih ${formatCurrency(revGap)} dibanding sisi satunya.`,
             color: winnerPeriod === "weekend"
+=======
+            icon: winningPeriod === "weekend" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />,
+            text: `${winningPeriod === "weekend" ? "Weekend leads" : "Weekday leads"} with a ${formatCurrency(revGap)} gap.`,
+            color: winningPeriod === "weekend"
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                 ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400"
                 : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400",
         });
@@ -457,6 +482,7 @@ export default function SalesAnalyticsPage() {
 
             {/* ── SECTION 1 — RINGKASAN KPI ────────────────────────────── */}
             <section className="space-y-4 text-foreground">
+<<<<<<< HEAD
                 <div className="flex items-center justify-between">
                     <div>
                         <h2 className="text-base font-semibold">Ringkasan Penjualan</h2>
@@ -468,6 +494,19 @@ export default function SalesAnalyticsPage() {
                         </Badge>
                     )}
                 </div>
+=======
+                <DashboardSectionHeader
+                    title="Sales Summary"
+                    description="Key KPIs for the selected period."
+                    action={
+                        avgOccupancy != null ? (
+                            <Badge variant="outline" className={`text-xs ${avgOccupancy >= 70 ? "border-green-300 text-green-700" : avgOccupancy >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
+                                Avg. Occupancy: {avgOccupancy.toFixed(1)}%
+                            </Badge>
+                        ) : undefined
+                    }
+                />
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     {[
                         { label: "Total Tiket Terjual", value: totalTickets.toLocaleString("id-ID"), sub: `Rata-rata ${avgTicketsPerDay.toFixed(0)} tiket/hari`, icon: <Ticket className="h-4 w-4" /> },
@@ -475,6 +514,7 @@ export default function SalesAnalyticsPage() {
                         { label: "Rata-rata per Hari", value: `${avgTicketsPerDay.toFixed(0)} tiket`, sub: `Dalam ${Math.round(diffDays)} hari aktif`, icon: <Calendar className="h-4 w-4" /> },
                         { label: "Avg. Harga Tiket", value: formatCurrency(avgTicketPrice), sub: "Harga rata-rata per tiket", icon: <DollarSign className="h-4 w-4" /> },
                     ].map((card) => (
+<<<<<<< HEAD
                         <Card key={card.label}>
                             <CardHeader className="pb-2">
                                 <div className="flex items-center justify-between text-muted-foreground">
@@ -487,6 +527,16 @@ export default function SalesAnalyticsPage() {
                                 <p className="mt-1 text-xs text-muted-foreground">{card.sub}</p>
                             </CardContent>
                         </Card>
+=======
+                        <DashboardMetricCard
+                            key={card.label}
+                            title={card.label}
+                            icon={card.icon}
+                            loading={isInitialLoading}
+                            value={card.value}
+                            subtitle={card.sub}
+                        />
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                     ))}
                 </div>
 
@@ -546,9 +596,9 @@ export default function SalesAnalyticsPage() {
                                                     stroke="hsl(var(--primary))" strokeWidth={2.5}
                                                     style={{ filter: `url(#glow-${value})` }}
                                                     activeDot={{ r: 6 }}
-                                                    dot={(props: any) => {
+                                                    dot={(props: { cx?: number; cy?: number; payload?: { isWeekend?: boolean } }) => {
                                                         const { cx, cy, payload } = props;
-                                                        if (payload.isWeekend)
+                                                        if (payload?.isWeekend)
                                                             return <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={4} stroke="hsl(var(--primary))" strokeWidth={2} fill="hsl(var(--background))" />;
                                                         return <></>;
                                                     }}
@@ -691,7 +741,7 @@ export default function SalesAnalyticsPage() {
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            <span className={`text-sm font-bold ${f.occupancy >= 70 ? "text-green-600" : f.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                                                            <span className={`text-sm font-bold ${getOccupancyTextClass(f.occupancy)}`}>
                                                                 {f.occupancy.toFixed(1)}%
                                                             </span>
                                                             <Progress
@@ -722,19 +772,34 @@ export default function SalesAnalyticsPage() {
                         <div>
                             <h2 className="text-base font-semibold">Akhir Pekan vs Hari Kerja</h2>
                             <p className="text-xs text-muted-foreground">
+<<<<<<< HEAD
                                 {winnerPeriod === "weekend" ? "Akhir pekan unggul" : "Hari kerja unggul"}
                                 {revGap != null ? ` dengan selisih ${formatCurrency(revGap)}.` : "."}
                                 {" "}Gunakan data ini untuk strategi jadwal dan promo.
+=======
+                                {winningPeriod === "weekend" ? "Weekend leads" : "Weekday leads"}
+                                {revGap != null ? ` with a gap of ${formatCurrency(revGap)}.` : "."}
+                                {" "}Use this data for scheduling and promotions strategy.
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                             </p>
                         </div>
                         <div className="grid gap-6 md:grid-cols-3">
                             {weekendWeekdayChart.map((row) => (
+<<<<<<< HEAD
                                 <Card key={row.name} className={winnerPeriod === "weekend" && row.name === "Akhir pekan" ? "border-primary/30 bg-primary/5" : winnerPeriod === "weekday" && row.name === "Hari kerja" ? "border-primary/30 bg-primary/5" : ""}>
                                     <CardHeader className="pb-2">
                                         <div className="flex items-center justify-between">
                                             <CardTitle className="text-sm font-medium">{row.name}</CardTitle>
                                             {((winnerPeriod === "weekend" && row.name === "Akhir pekan") || (winnerPeriod !== "weekend" && row.name === "Hari kerja")) && (
                                                 <Badge className="bg-primary text-primary-foreground text-[10px]">Unggul</Badge>
+=======
+                                <Card key={row.name} className={winningPeriod === "weekend" && row.name === "Weekend" ? "border-primary/30 bg-primary/5" : winningPeriod === "weekday" && row.name === "Weekday" ? "border-primary/30 bg-primary/5" : ""}>
+                                    <CardHeader className="pb-2">
+                                        <div className="flex items-center justify-between">
+                                            <CardTitle className="text-sm font-medium">{row.name}</CardTitle>
+                                            {((winningPeriod === "weekend" && row.name === "Weekend") || (winningPeriod !== "weekend" && row.name === "Weekday")) && (
+                                                <Badge className="bg-primary text-primary-foreground text-[10px]">Leading</Badge>
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                                             )}
                                         </div>
                                     </CardHeader>
@@ -749,8 +814,13 @@ export default function SalesAnalyticsPage() {
                                                 <p className="text-sm font-semibold">{row.tickets.toLocaleString("id-ID")}</p>
                                             </div>
                                             <div>
+<<<<<<< HEAD
                                                 <p className="text-[10px] text-muted-foreground uppercase">Okupansi</p>
                                                 <p className={`text-sm font-semibold ${row.occupancy >= 70 ? "text-green-600" : row.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+=======
+                                                <p className="text-[10px] text-muted-foreground uppercase">Occupancy</p>
+                                                <p className={`text-sm font-semibold ${getOccupancyTextClass(row.occupancy)}`}>
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                                                     {row.occupancy.toFixed(1)}%
                                                 </p>
                                             </div>
@@ -916,9 +986,15 @@ export default function SalesAnalyticsPage() {
                         </div>
                         <div className="grid gap-4 md:grid-cols-3">
                             {[
+<<<<<<< HEAD
                                 { label: "Jadwal Batal", value: `${cancelledShows}`, sub: "jadwal batal", icon: <AlertTriangle className="h-4 w-4 text-red-500" />, cls: "border-l-4 border-l-red-500" },
                                 { label: "Jadwal Tunda", value: `${delayedShows}`, sub: "jadwal tertunda", icon: <Clock className="h-4 w-4 text-amber-500" />, cls: "border-l-4 border-l-amber-500" },
                                 { label: "Rata-rata Penundaan", value: `${Math.round(avgDelay)} mnt`, sub: "per jadwal bermasalah", icon: <Clock4 className="h-4 w-4 text-muted-foreground" />, cls: "" },
+=======
+                                { label: "Cancelled Schedules", value: `${cancelledShows}`, sub: "cancelled schedules", icon: <AlertTriangle className="h-4 w-4 text-red-500" />, cls: "border-l-4 border-l-red-500" },
+                                { label: "Delayed Schedules", value: `${delayedShows}`, sub: "delayed schedules", icon: <Clock className="h-4 w-4 text-amber-500" />, cls: "border-l-4 border-l-amber-500" },
+                                { label: "Average Delay", value: `${Math.round(avgDelay)} min`, sub: "per problematic schedule", icon: <Clock4 className="h-4 w-4 text-muted-foreground" />, cls: "" },
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                             ].map((c) => (
                                 <Card key={c.label} className={c.cls}>
                                     <CardHeader className="pb-2">
@@ -965,7 +1041,11 @@ export default function SalesAnalyticsPage() {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="text-right text-sm">
+<<<<<<< HEAD
                                                     {s.status.toLowerCase() === "delayed" ? `${s.delayMinutes} mnt` : s.status.toLowerCase() === "cancelled" ? "Dibatalkan" : "—"}
+=======
+                                                    {s.status.toLowerCase() === "delayed" ? `${s.delayMinutes} min` : s.status.toLowerCase() === "cancelled" ? "Cancelled" : "—"}
+>>>>>>> 0efb2fa (Optimize dashboard data loading and standardize notification mapping.)
                                                 </TableCell>
                                             </TableRow>
                                         ))}

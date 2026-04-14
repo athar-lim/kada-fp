@@ -7,6 +7,10 @@ import { DayPicker } from "react-day-picker";
 import { cn } from "@/lib/utils";
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>;
+type CalendarChevronProps = {
+  orientation?: "left" | "right" | "down";
+  className?: string;
+} & React.SVGProps<SVGSVGElement>;
 
 function Calendar({
   className,
@@ -63,7 +67,7 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Chevron: ({ orientation, className, ...iconProps }: any) => {
+        Chevron: ({ orientation, className, ...iconProps }: CalendarChevronProps) => {
           if (orientation === "left") {
             return <ChevronLeft className={cn("h-4 w-4", className)} {...iconProps} />;
           }
