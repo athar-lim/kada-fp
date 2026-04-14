@@ -45,6 +45,10 @@ import {
 import { Clock, Ticket, DollarSign, Calendar, AlertTriangle, Clock4, ArrowUp, ArrowDown, FileDown } from 'lucide-react';
 import { DateRangeFilter } from '@/components/filters/date-range-filter';
 import { Button } from '@/components/ui/button';
+import {
+  DashboardMetricCard,
+  DashboardSectionHeader,
+} from "@/components/dashboard/dashboard-ui-blocks";
 
 import {
   getCities,
@@ -55,10 +59,9 @@ import {
   type SalesAnalyticsBundlePayload,
 } from "@/lib/cinetrack-api";
 import { useDashboardUrlFilters } from "@/hooks/use-dashboard-url-filters";
+import { getOccupancyTextClass } from "@/lib/dashboard-ui";
 
-// ===========================
-// TYPE DEFININTS
-// ===========================
+// --- Types ---
 
 type SalesPayload = {
   overview: SalesAnalyticsBundlePayload["overview"] | null;
@@ -71,9 +74,7 @@ type SalesPayload = {
   operationalRisk: SalesAnalyticsBundlePayload["operational_risk"] | null;
 };
 
-// ===========================
-// STYLE HELPERS & UTILS
-// ===========================
+// --- Helpers ---
 
 const formatCurrency = (value: number | undefined | null) => {
     if (value == null) return "-";
@@ -94,9 +95,7 @@ const normalizeRecommendation = (text: string) => {
         .trim();
 };
 
-// ===========================
-// PAGE COMPONENT
-// ===========================
+// --- Component ---
 
 export default function SalesAnalyticsPage() {
     const {
@@ -365,7 +364,7 @@ export default function SalesAnalyticsPage() {
 
     // ── Auto-computed insights ──────────────────────────────────────────────
     const topMovie = revenuePerMovie[0];
-    const winnerPeriod = dashboardData.weekendWeekday?.summary?.winning_period;
+    const winningPeriod = dashboardData.weekendWeekday?.summary?.winning_period;
     const revGap = dashboardData.weekendWeekday?.summary?.revenue_gap;
     const topPayment = paymentBreakdownRows[0];
     const avgOccupancy = occupancyPerCinema.length
@@ -385,11 +384,11 @@ export default function SalesAnalyticsPage() {
             color: "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400",
         });
 
-    if (winnerPeriod && revGap != null)
+    if (winningPeriod && revGap != null)
         insightBanners.push({
-            icon: winnerPeriod === "weekend" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />,
-            text: `${winnerPeriod === "weekend" ? "Weekend leads" : "Weekday unggul"} selisih ${formatCurrency(revGap)} dibanding sisi satunya.`,
-            color: winnerPeriod === "weekend"
+            icon: winningPeriod === "weekend" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />,
+            text: `${winningPeriod === "weekend" ? "Weekend leads" : "Weekday leads"} with a ${formatCurrency(revGap)} gap.`,
+            color: winningPeriod === "weekend"
                 ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400"
                 : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400",
         });
@@ -510,17 +509,17 @@ export default function SalesAnalyticsPage() {
 
             {/* ── SECTION 1 — KPI SUMMARY ─────────────────────────────── */}
             <section className="space-y-4 text-foreground">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="text-base font-semibold">Sales Summary</h2>
-                        <p className="text-xs text-muted-foreground">Key KPIs for the selected period.</p>
-                    </div>
-                    {avgOccupancy != null && (
-                        <Badge variant="outline" className={`text-xs ${avgOccupancy >= 70 ? "border-green-300 text-green-700" : avgOccupancy >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
-                            Avg. Occupancy: {avgOccupancy.toFixed(1)}%
-                        </Badge>
-                    )}
-                </div>
+                <DashboardSectionHeader
+                    title="Sales Summary"
+                    description="Key KPIs for the selected period."
+                    action={
+                        avgOccupancy != null ? (
+                            <Badge variant="outline" className={`text-xs ${avgOccupancy >= 70 ? "border-green-300 text-green-700" : avgOccupancy >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
+                                Avg. Occupancy: {avgOccupancy.toFixed(1)}%
+                            </Badge>
+                        ) : undefined
+                    }
+                />
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     {[
                         { label: "Total Tickets Sold", value: totalTickets.toLocaleString("id-ID"), sub: `Average ${avgTicketsPerDay.toFixed(0)} tickets/day`, icon: <Ticket className="h-4 w-4" /> },
@@ -528,27 +527,14 @@ export default function SalesAnalyticsPage() {
                         { label: "Average per Day", value: `${avgTicketsPerDay.toFixed(0)} tickets`, sub: `Across ${Math.round(diffDays)} active days`, icon: <Calendar className="h-4 w-4" /> },
                         { label: "Avg. Ticket Price", value: formatCurrency(avgTicketPrice), sub: "Average price per ticket", icon: <DollarSign className="h-4 w-4" /> },
                     ].map((card) => (
-                        <Card key={card.label}>
-                            <CardHeader className="pb-2">
-                                <div className="flex items-center justify-between text-muted-foreground">
-                                    <CardTitle className="text-sm font-medium text-foreground">{card.label}</CardTitle>
-                                    {card.icon}
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                {isInitialLoading ? (
-                                    <div className="space-y-2">
-                                        <Skeleton className="h-8 w-28" />
-                                        <Skeleton className="h-4 w-40" />
-                                    </div>
-                                ) : (
-                                    <>
-                                        <div className="text-2xl font-bold">{card.value}</div>
-                                        <p className="mt-1 text-xs text-muted-foreground">{card.sub}</p>
-                                    </>
-                                )}
-                            </CardContent>
-                        </Card>
+                        <DashboardMetricCard
+                            key={card.label}
+                            title={card.label}
+                            icon={card.icon}
+                            loading={isInitialLoading}
+                            value={card.value}
+                            subtitle={card.sub}
+                        />
                     ))}
                 </div>
 
@@ -608,9 +594,9 @@ export default function SalesAnalyticsPage() {
                                                     stroke="hsl(var(--primary))" strokeWidth={2.5}
                                                     style={{ filter: `url(#glow-${value})` }}
                                                     activeDot={{ r: 6 }}
-                                                    dot={(props: any) => {
+                                                    dot={(props: { cx?: number; cy?: number; payload?: { isWeekend?: boolean } }) => {
                                                         const { cx, cy, payload } = props;
-                                                        if (payload.isWeekend)
+                                                        if (payload?.isWeekend)
                                                             return <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={4} stroke="hsl(var(--primary))" strokeWidth={2} fill="hsl(var(--background))" />;
                                                         return <></>;
                                                     }}
@@ -753,7 +739,7 @@ export default function SalesAnalyticsPage() {
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            <span className={`text-sm font-bold ${f.occupancy >= 70 ? "text-green-600" : f.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                                                            <span className={`text-sm font-bold ${getOccupancyTextClass(f.occupancy)}`}>
                                                                 {f.occupancy.toFixed(1)}%
                                                             </span>
                                                             <Progress
@@ -784,18 +770,18 @@ export default function SalesAnalyticsPage() {
                         <div>
                             <h2 className="text-base font-semibold">Weekend vs Weekday</h2>
                             <p className="text-xs text-muted-foreground">
-                                {winnerPeriod === "weekend" ? "Weekend leads" : "Weekday unggul"}
+                                {winningPeriod === "weekend" ? "Weekend leads" : "Weekday leads"}
                                 {revGap != null ? ` with a gap of ${formatCurrency(revGap)}.` : "."}
                                 {" "}Use this data for scheduling and promotions strategy.
                             </p>
                         </div>
                         <div className="grid gap-6 md:grid-cols-3">
                             {weekendWeekdayChart.map((row) => (
-                                <Card key={row.name} className={winnerPeriod === "weekend" && row.name === "Weekend" ? "border-primary/30 bg-primary/5" : winnerPeriod === "weekday" && row.name === "Weekday" ? "border-primary/30 bg-primary/5" : ""}>
+                                <Card key={row.name} className={winningPeriod === "weekend" && row.name === "Weekend" ? "border-primary/30 bg-primary/5" : winningPeriod === "weekday" && row.name === "Weekday" ? "border-primary/30 bg-primary/5" : ""}>
                                     <CardHeader className="pb-2">
                                         <div className="flex items-center justify-between">
                                             <CardTitle className="text-sm font-medium">{row.name}</CardTitle>
-                                            {((winnerPeriod === "weekend" && row.name === "Weekend") || (winnerPeriod !== "weekend" && row.name === "Weekday")) && (
+                                            {((winningPeriod === "weekend" && row.name === "Weekend") || (winningPeriod !== "weekend" && row.name === "Weekday")) && (
                                                 <Badge className="bg-primary text-primary-foreground text-[10px]">Leading</Badge>
                                             )}
                                         </div>
@@ -812,7 +798,7 @@ export default function SalesAnalyticsPage() {
                                             </div>
                                             <div>
                                                 <p className="text-[10px] text-muted-foreground uppercase">Occupancy</p>
-                                                <p className={`text-sm font-semibold ${row.occupancy >= 70 ? "text-green-600" : row.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                                                <p className={`text-sm font-semibold ${getOccupancyTextClass(row.occupancy)}`}>
                                                     {row.occupancy.toFixed(1)}%
                                                 </p>
                                             </div>
@@ -980,7 +966,7 @@ export default function SalesAnalyticsPage() {
                             {[
                                 { label: "Cancelled Schedules", value: `${cancelledShows}`, sub: "cancelled schedules", icon: <AlertTriangle className="h-4 w-4 text-red-500" />, cls: "border-l-4 border-l-red-500" },
                                 { label: "Delayed Schedules", value: `${delayedShows}`, sub: "delayed schedules", icon: <Clock className="h-4 w-4 text-amber-500" />, cls: "border-l-4 border-l-amber-500" },
-                                { label: "Average Penundaan", value: `${Math.round(avgDelay)} mnt`, sub: "per problematic schedule", icon: <Clock4 className="h-4 w-4 text-muted-foreground" />, cls: "" },
+                                { label: "Average Delay", value: `${Math.round(avgDelay)} min`, sub: "per problematic schedule", icon: <Clock4 className="h-4 w-4 text-muted-foreground" />, cls: "" },
                             ].map((c) => (
                                 <Card key={c.label} className={c.cls}>
                                     <CardHeader className="pb-2">
@@ -1027,7 +1013,7 @@ export default function SalesAnalyticsPage() {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="text-right text-sm">
-                                                    {s.status.toLowerCase() === "delayed" ? `${s.delayMinutes} mnt` : s.status.toLowerCase() === "cancelled" ? "Cancelled" : "—"}
+                                                    {s.status.toLowerCase() === "delayed" ? `${s.delayMinutes} min` : s.status.toLowerCase() === "cancelled" ? "Cancelled" : "—"}
                                                 </TableCell>
                                             </TableRow>
                                         ))}

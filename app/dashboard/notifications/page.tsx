@@ -29,6 +29,10 @@ import {
   type AiInsightResponse,
 } from "@/lib/cinetrack-api";
 
+type AiInsightWithLegacyActions = AiInsightResponse & {
+  action_items?: string[];
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const getNotificationIcon = (type: string) => {
@@ -340,7 +344,10 @@ export default function NotificationsPage() {
             <div className="grid gap-4">
               {aiInsights.map((item, index) => {
                 const impactCfg = getImpactConfig(item.cards?.impact_level ?? item.analysis?.impact_level);
-                const actionItems: string[] = item.analysis?.action_items ?? (item as any).action_items ?? [];
+                const actionItems: string[] =
+                  item.analysis?.action_items ??
+                  (item as AiInsightWithLegacyActions).action_items ??
+                  [];
                 const category = item.cards?.category ?? item.analysis?.category ?? "AI Analysis";
                 const headline = item.cards?.headline ?? item.analysis?.title;
                 const summary = item.cards?.summary ?? item.analysis?.description;

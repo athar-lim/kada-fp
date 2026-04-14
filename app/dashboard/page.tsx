@@ -1,14 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format, subDays } from "date-fns";
-import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import {
   Activity,
-  AlertTriangle,
-  Bell,
-  BellOff,
-  ChevronRight,
   DollarSign,
   Gauge,
   MapPinned,
@@ -29,7 +25,6 @@ import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -56,8 +51,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getCinemaPerformanceBreakdown,
   getDashboardSummary,
+  getFilmsAnalyticsBundle,
   getLatestAiInsight,
   getOccupancyStats,
+  getSalesAnalyticsBundle,
   getSystemHealth,
   getTopMovies,
   type AiInsightResponse,
@@ -175,6 +172,7 @@ function MetricCardSkeleton() {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const {
     selectedCity,
     selectedCinema,
@@ -197,9 +195,41 @@ export default function DashboardPage() {
   });
   const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [multiCityOccupancyData, setMultiCityOccupancyData] = useState<MultiCityOccupancyPoint[]>([]);
   const [multiCityOccupancyKeys, setMultiCityOccupancyKeys] = useState<string[]>([]);
   const [enableAllCitiesOccupancy, setEnableAllCitiesOccupancy] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
+
+  useEffect(() => {
+    const filmsHref = hrefWithFilters("/dashboard/films");
+    const salesHref = hrefWithFilters("/dashboard/sales");
+    router.prefetch(filmsHref);
+    router.prefetch(salesHref);
+  }, [hrefWithFilters, router]);
+
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const scheduleIdle = window.requestIdleCallback ?? ((cb: IdleRequestCallback) => window.setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 250));
+    const cancelIdle = window.cancelIdleCallback ?? window.clearTimeout;
+
+    const idleId = scheduleIdle(() => {
+      void Promise.allSettled([
+        getFilmsAnalyticsBundle({ ...query, top_n: "20" }),
+        getSalesAnalyticsBundle({
+          ...query,
+          cinema_top_n: "10",
+          movie_top_n: "7",
+        }),
+      ]);
+    });
+
+    return () => {
+      cancelIdle(idleId);
+    };
+  }, [query]);
 
   useEffect(() => {
     if (selectedCinema === "all" || !data.cinemas) return;
@@ -215,7 +245,11 @@ export default function DashboardPage() {
     let cancelled = false;
 
     const loadDashboard = async () => {
-      setLoading(true);
+      if (hasLoadedOnceRef.current) {
+        setIsRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setErrors({});
 
       const results = await Promise.allSettled([
@@ -241,11 +275,16 @@ export default function DashboardPage() {
 
         let updatedHistory = currentHistory;
         if (newInsight && newInsight.period?.label) {
-          const exists = currentHistory.some(h => h.period?.label === newInsight.period.label);
+          const exists = currentHistory.some(
+            (h) => h.period?.label === newInsight.period.label
+          );
           if (!exists) {
             updatedHistory = [newInsight, ...currentHistory].slice(0, 10);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('cinetrack_insight_history', JSON.stringify(updatedHistory));
+            if (typeof window !== "undefined") {
+              localStorage.setItem(
+                "cinetrack_insight_history",
+                JSON.stringify(updatedHistory)
+              );
             }
           }
         }
@@ -289,23 +328,28 @@ export default function DashboardPage() {
             : undefined,
       });
 
+      if (!hasLoadedOnceRef.current) {
+        hasLoadedOnceRef.current = true;
+      }
       setLoading(false);
+      setIsRefreshing(false);
     };
 
     loadDashboard();
 
     return () => {
       cancelled = true;
+      setIsRefreshing(false);
     };
   }, [dateRange?.from, query, setDateRange]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('cinetrack_insight_history');
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("cinetrack_insight_history");
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setData(prev => ({ ...prev, insightHistory: parsed }));
+          setData((prev) => ({ ...prev, insightHistory: parsed }));
         } catch (e) {
           console.error("Failed to parse insight history", e);
         }
@@ -528,9 +572,14 @@ export default function DashboardPage() {
           {loading ? (
             <Skeleton className="mt-2 h-3 w-40" />
           ) : (
-            <p className="text-xs text-muted-foreground">
-              {`Data from ${formatPeriod(data.summary?.meta.period)}`}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-muted-foreground">
+                {`Data from ${formatPeriod(data.summary?.meta.period)}`}
+              </p>
+              {isRefreshing ? (
+                <span className="text-[11px] text-muted-foreground">Refreshing...</span>
+              ) : null}
+            </div>
           )}
         </div>
 

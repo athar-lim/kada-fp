@@ -20,6 +20,10 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  DashboardMetricCard,
+  DashboardSectionHeader,
+} from "@/components/dashboard/dashboard-ui-blocks";
+import {
   Table,
   TableBody,
   TableCell,
@@ -64,6 +68,7 @@ import {
   type FilmsAnalyticsBundlePayload,
 } from "@/lib/cinetrack-api";
 import { useDashboardUrlFilters } from "@/hooks/use-dashboard-url-filters";
+import { getOccupancyTextClass } from "@/lib/dashboard-ui";
 
 type FilmsPayload = {
   overview: FilmsAnalyticsBundlePayload["overview"] | null;
@@ -74,12 +79,14 @@ type FilmsPayload = {
   risk: FilmsAnalyticsBundlePayload["operational_risk"] | null;
 };
 
-// ===========================
-// STYLE HELPERS & UTILS
-// ===========================
+// --- Helpers ---
 
-const formatCurrency = (value: number) => 
-  new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    minimumFractionDigits: 0,
+  }).format(value);
 
 const GENRE_CHART_COLORS = [
     "hsl(var(--primary))",
@@ -91,10 +98,10 @@ const GENRE_CHART_COLORS = [
 ];
 
 const RATING_COLORS: Record<string, string> = {
-    "SU": 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-    "R13": 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-    "D17": 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
-    "default": 'bg-secondary text-secondary-foreground'
+    "SU": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+    "R13": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+    "D17": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+    "default": "bg-secondary text-secondary-foreground"
 };
 
 const PodiumIcon = ({ rank }: { rank: number }) => {
@@ -104,9 +111,7 @@ const PodiumIcon = ({ rank }: { rank: number }) => {
     return null;
 }
 
-// ===========================
-// PAGE COMPONENT
-// ===========================
+// --- Component ---
 
 export default function FilmPerformancePage() {
     const {
@@ -228,7 +233,7 @@ export default function FilmPerformancePage() {
 
     // Construct UI Variables from API Data
     const totalFilms = data.overview?.active_films ?? 0;
-    const topFilmLaris = data.performance?.top_movie ?? { title: "-" };
+    const topSellingMovie = data.performance?.top_movie ?? { title: "-" };
     const totalTicketsSold = data.overview?.tickets_sold ?? 0;
     const rawTopGenre = data.distribution?.genre_popularity?.summary?.top_genre?.genre;
     const topGenreText = rawTopGenre === "Unknown" ? "Others" : (rawTopGenre ?? "-");
@@ -251,7 +256,7 @@ export default function FilmPerformancePage() {
                 avgPrice: film.total_tickets > 0 ? film.total_revenue / film.total_tickets : 0,
                 occupancy: occEntry ? occEntry.occupancy : 0,
                 genresLabel,
-                ratingUsia: film.rating_usia ?? film.rating ?? "—",
+                ageRating: film.rating_usia ?? film.rating ?? "—",
                 shareOfTickets: film.share_of_tickets ?? 0,
                 shareOfRevenue: film.share_of_revenue ?? 0,
             };
@@ -387,39 +392,25 @@ export default function FilmPerformancePage() {
 
             {/* ── SECTION 1 — KPI CARDS ────────────────────────────────── */}
             <section className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="text-base font-semibold">Film Summary</h2>
-                        <p className="text-xs text-muted-foreground">Key KPIs for the selected period.</p>
-                    </div>
-                    {avgOccupancyFilms != null && (
-                        <Badge variant="outline" className={`text-xs ${avgOccupancyFilms >= 70 ? "border-green-300 text-green-700" : avgOccupancyFilms >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
-                            Avg. Film Occupancy: {avgOccupancyFilms.toFixed(1)}%
-                        </Badge>
-                    )}
-                </div>
+                <DashboardSectionHeader
+                    title="Film Summary"
+                    description="Key KPIs for the selected period."
+                    action={
+                        avgOccupancyFilms != null ? (
+                            <Badge variant="outline" className={`text-xs ${avgOccupancyFilms >= 70 ? "border-green-300 text-green-700" : avgOccupancyFilms >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
+                                Avg. Film Occupancy: {avgOccupancyFilms.toFixed(1)}%
+                            </Badge>
+                        ) : undefined
+                    }
+                />
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <Card>
-                        <CardHeader className="pb-2">
-                            <div className="flex items-center justify-between text-muted-foreground">
-                                <CardTitle className="text-sm font-medium text-foreground">Total Movies Showing</CardTitle>
-                                <Film className="h-4 w-4" />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {isInitialLoading ? (
-                                <div className="space-y-2">
-                                    <Skeleton className="h-8 w-24" />
-                                    <Skeleton className="h-4 w-40" />
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="text-2xl font-bold">{totalFilms}</div>
-                                    <p className="mt-1 text-xs text-muted-foreground">Active movies in this period</p>
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
+                    <DashboardMetricCard
+                        title="Total Movies Showing"
+                        icon={<Film className="h-4 w-4" />}
+                        loading={isInitialLoading}
+                        value={totalFilms}
+                        subtitle="Active movies in this period"
+                    />
                     <Card>
                         <CardHeader className="pb-2">
                             <div className="flex items-center justify-between text-muted-foreground">
@@ -435,7 +426,7 @@ export default function FilmPerformancePage() {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="text-xl font-bold truncate max-w-full leading-tight" title={topFilmLaris.title}>{topFilmLaris.title}</div>
+                                    <div className="text-xl font-bold truncate max-w-full leading-tight" title={topSellingMovie.title}>{topSellingMovie.title}</div>
                                     <p className="mt-1 text-xs text-muted-foreground">
                                         {topByTickets ? `${topByTickets.tickets.toLocaleString("id-ID")} tickets sold` : "—"}
                                     </p>
@@ -443,52 +434,24 @@ export default function FilmPerformancePage() {
                             )}
                         </CardContent>
                     </Card>
-                    <Card>
-                        <CardHeader className="pb-2">
-                            <div className="flex items-center justify-between text-muted-foreground">
-                                <CardTitle className="text-sm font-medium text-foreground">Total Tickets Sold</CardTitle>
-                                <Ticket className="h-4 w-4" />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {isInitialLoading ? (
-                                <div className="space-y-2">
-                                    <Skeleton className="h-8 w-28" />
-                                    <Skeleton className="h-4 w-32" />
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="text-2xl font-bold">{totalTicketsSold.toLocaleString("id-ID")}</div>
-                                    <p className="mt-1 text-xs text-muted-foreground">All active movies</p>
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader className="pb-2">
-                            <div className="flex items-center justify-between text-muted-foreground">
-                                <CardTitle className="text-sm font-medium text-foreground">Most Popular Genre</CardTitle>
-                                <Clapperboard className="h-4 w-4" />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {isInitialLoading ? (
-                                <div className="space-y-2">
-                                    <Skeleton className="h-8 w-32" />
-                                    <Skeleton className="h-4 w-44" />
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="text-2xl font-bold">{topGenreText}</div>
-                                    <p className="mt-1 text-xs text-muted-foreground">
-                                        {topGenreData && totalTicketsForGenreStack > 0
-                                            ? `${topGenreData.tickets.toLocaleString("id-ID")} tickets (${((topGenreData.tickets / totalTicketsForGenreStack) * 100).toFixed(1)}%)`
-                                            : "Based on tickets sold"}
-                                    </p>
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
+                    <DashboardMetricCard
+                        title="Total Tickets Sold"
+                        icon={<Ticket className="h-4 w-4" />}
+                        loading={isInitialLoading}
+                        value={totalTicketsSold.toLocaleString("id-ID")}
+                        subtitle="All active movies"
+                    />
+                    <DashboardMetricCard
+                        title="Most Popular Genre"
+                        icon={<Clapperboard className="h-4 w-4" />}
+                        loading={isInitialLoading}
+                        value={topGenreText}
+                        subtitle={
+                            topGenreData && totalTicketsForGenreStack > 0
+                                ? `${topGenreData.tickets.toLocaleString("id-ID")} tickets (${((topGenreData.tickets / totalTicketsForGenreStack) * 100).toFixed(1)}%)`
+                                : "Based on tickets sold"
+                        }
+                    />
                 </div>
             </section>
 
@@ -496,13 +459,15 @@ export default function FilmPerformancePage() {
 
             {/* ── SECTION 2 — TOP MOVIES BY TICKETS ───────────────────── */}
             <section className="space-y-4">
-                <div>
-                    <h2 className="text-base font-semibold">Top Movies — Tickets Sold</h2>
-                    <p className="text-xs text-muted-foreground">
-                        Movie ranking by ticket volume.
-                        {topByTickets && ` ${topByTickets.title} leads with ${topByTickets.shareOfTickets.toFixed(1)}% share.`}
-                    </p>
-                </div>
+                <DashboardSectionHeader
+                    title="Top Movies — Tickets Sold"
+                    description={
+                        <>
+                            Movie ranking by ticket volume.
+                            {topByTickets && ` ${topByTickets.title} leads with ${topByTickets.shareOfTickets.toFixed(1)}% share.`}
+                        </>
+                    }
+                />
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
                         <Card>
@@ -541,7 +506,7 @@ export default function FilmPerformancePage() {
                                     <div className="flex items-start justify-between">
                                         <PodiumIcon rank={index + 1} />
                                         <Badge variant="outline" className="text-[10px]">
-                                            {film.ratingUsia}
+                                            {film.ageRating}
                                         </Badge>
                                     </div>
                                     <CardTitle className="text-base pt-1 leading-snug">{film.title}</CardTitle>
@@ -562,7 +527,7 @@ export default function FilmPerformancePage() {
                                     </div>
                                     <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">Occupancy</span>
-                                        <span className={`font-bold ${film.occupancy >= 70 ? "text-green-600" : film.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                                        <span className={`font-bold ${getOccupancyTextClass(film.occupancy)}`}>
                                             {film.occupancy.toFixed(1)}%
                                         </span>
                                     </div>

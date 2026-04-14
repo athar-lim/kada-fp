@@ -33,8 +33,8 @@ export default function AdminLoginPage() {
       localStorage.setItem("cinetrack_user", JSON.stringify(data.user));
       
       router.push("/dashboard");
-    } catch (err: any) {
-      setErrorMsg(err.message || "Invalid admin credentials");
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "Invalid admin credentials");
     } finally {
       setLoading(false);
     }

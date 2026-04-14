@@ -1,3 +1,5 @@
+import { mapDashboardNotification } from "@/lib/notification-mapper";
+
 const RAW_BASE_URL = process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL;
 const API_BASE_URL = RAW_BASE_URL
   ? (RAW_BASE_URL.endsWith("/api/v1") ? RAW_BASE_URL : `${RAW_BASE_URL}/api/v1`)
@@ -305,11 +307,31 @@ function buildQueryString(query?: Record<string, string | undefined>) {
   return params.toString();
 }
 
+type FetchCacheEntry = {
+  expiresAt: number;
+  payload: unknown;
+};
+
+const responseCache = new Map<string, FetchCacheEntry>();
+const inflightRequests = new Map<string, Promise<unknown>>();
+
+function shouldLogApiTelemetry() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("debug_api") === "1";
+  } catch {
+    return false;
+  }
+}
+
 async function fetchJson<T>(
   path: string,
   query?: Record<string, string | undefined>,
   options?: {
     unwrapEnvelope?: boolean;
+    cacheTtlMs?: number;
+    dedupe?: boolean;
+    telemetryLabel?: string;
   }
 ): Promise<T> {
   const queryString = buildQueryString(query);
@@ -326,46 +348,105 @@ async function fetchJson<T>(
     }
   }
 
-  const response = await fetch(url, {
-    headers,
-    cache: "default",
-  });
+  const cacheTtlMs = options?.cacheTtlMs ?? 0;
+  const shouldDedupe = options?.dedupe ?? true;
+  const cacheKey = `${url}|${headers["Authorization"] ?? "anonymous"}`;
+  const now = Date.now();
 
-  if (response.status === 401) {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("cinetrack_token");
-      localStorage.removeItem("cinetrack_user");
-      window.location.href = "/login";
+  if (cacheTtlMs > 0) {
+    const cached = responseCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      if (shouldLogApiTelemetry()) {
+        console.debug("[api] cache_hit", options?.telemetryLabel ?? path, {
+          ttl_ms_remaining: Math.max(0, cached.expiresAt - now),
+        });
+      }
+      return cached.payload as T;
     }
-    throw new Error(`Unauthorized (401) - Please log in`);
   }
 
-  if (!response.ok) {
-    throw new Error(`Request failed for ${path} (${response.status})`);
+  if (shouldDedupe) {
+    const inflight = inflightRequests.get(cacheKey);
+    if (inflight) {
+      if (shouldLogApiTelemetry()) {
+        console.debug("[api] dedupe_hit", options?.telemetryLabel ?? path);
+      }
+      return inflight as Promise<T>;
+    }
   }
 
-  const payload = (await response.json()) as T | ApiEnvelope<T>;
-  const shouldUnwrapEnvelope = options?.unwrapEnvelope ?? true;
+  const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const requestPromise = (async () => {
+    const response = await fetch(url, {
+      headers,
+      cache: "default",
+    });
 
-  if (!shouldUnwrapEnvelope) {
-    return payload as T;
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("cinetrack_token");
+        localStorage.removeItem("cinetrack_user");
+        window.location.href = "/login";
+      }
+      throw new Error(`Unauthorized (401) - Please log in`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Request failed for ${path} (${response.status})`);
+    }
+
+    const payload = (await response.json()) as T | ApiEnvelope<T>;
+    const shouldUnwrapEnvelope = options?.unwrapEnvelope ?? true;
+    let parsed: T;
+
+    if (!shouldUnwrapEnvelope) {
+      parsed = payload as T;
+    } else if (
+      payload &&
+      typeof payload === "object" &&
+      "data" in payload &&
+      !Array.isArray(payload)
+    ) {
+      parsed = (payload as ApiEnvelope<T>).data;
+    } else {
+      parsed = payload as T;
+    }
+
+    if (cacheTtlMs > 0) {
+      responseCache.set(cacheKey, {
+        payload: parsed,
+        expiresAt: Date.now() + cacheTtlMs,
+      });
+    }
+
+    if (shouldLogApiTelemetry()) {
+      const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt;
+      console.debug("[api] network_ok", options?.telemetryLabel ?? path, {
+        duration_ms: Math.round(durationMs),
+      });
+    }
+
+    return parsed;
+  })();
+
+  if (shouldDedupe) {
+    inflightRequests.set(cacheKey, requestPromise);
   }
 
-  if (
-    payload &&
-    typeof payload === "object" &&
-    "data" in payload &&
-    !Array.isArray(payload)
-  ) {
-    return (payload as ApiEnvelope<T>).data;
+  try {
+    return await requestPromise;
+  } finally {
+    if (shouldDedupe) {
+      inflightRequests.delete(cacheKey);
+    }
   }
-
-  return payload as T;
 }
 
 export function getDashboardSummary(query?: DashboardQuery) {
   return fetchJson<ApiEnvelope<SummaryApiData>>("/stats/summary", query, {
     unwrapEnvelope: false,
+    cacheTtlMs: 10_000,
+    telemetryLabel: "stats_summary",
   }).then((payload) => ({
     data: {
       total_tickets: payload.data.total_tickets,
@@ -392,19 +473,31 @@ export function getDashboardSummary(query?: DashboardQuery) {
 }
 
 export function getCinemaBreakdown(query?: DashboardQuery) {
-  return fetchJson<CinemaBreakdownResponse>("/cinemas", query);
+  return fetchJson<CinemaBreakdownResponse>("/cinemas", query, {
+    cacheTtlMs: 120_000,
+    telemetryLabel: "cinema_directory",
+  });
 }
 
 export function getCinemaPerformanceBreakdown(query?: DashboardQuery) {
-  return fetchJson<CinemaBreakdownResponse>("/stats/cinema", query);
+  return fetchJson<CinemaBreakdownResponse>("/stats/cinema", query, {
+    cacheTtlMs: 15_000,
+    telemetryLabel: "stats_cinema",
+  });
 }
 
 export function getTrendStats(query?: DashboardQuery) {
-  return fetchJson<TrendsResponse>("/stats/trends", query);
+  return fetchJson<TrendsResponse>("/stats/trends", query, {
+    cacheTtlMs: 15_000,
+    telemetryLabel: "stats_trends",
+  });
 }
 
 export function getOccupancyStats(query?: DashboardQuery) {
-  return fetchJson<OccupancyApiData>("/stats/occupancy", query).then((payload) => ({
+  return fetchJson<OccupancyApiData>("/stats/occupancy", query, {
+    cacheTtlMs: 10_000,
+    telemetryLabel: "stats_occupancy",
+  }).then((payload) => ({
     summary: {
       ...payload.summary,
       occupancy: payload.summary.occupancy ?? payload.summary.avg_occupancy ?? 0,
@@ -419,14 +512,24 @@ export function getOccupancyStats(query?: DashboardQuery) {
 }
 
 export function getMovieStats(query?: DashboardQuery) {
-  return fetchJson<MovieStatsResponse>("/stats/movie", query);
+  return fetchJson<MovieStatsResponse>("/stats/movie", query, {
+    cacheTtlMs: 20_000,
+    telemetryLabel: "stats_movie",
+  });
 }
 
 export function getTopMovies(query?: DashboardQuery) {
-  return fetchJson<TopMovie[]>("/movies/rankings", {
-    ...query,
-    top10: "true",
-  });
+  return fetchJson<TopMovie[]>(
+    "/movies/rankings",
+    {
+      ...query,
+      top10: "true",
+    },
+    {
+      cacheTtlMs: 15_000,
+      telemetryLabel: "movies_rankings",
+    }
+  );
 }
 
 export async function getMoviesCatalog() {
@@ -510,11 +613,17 @@ export function getScheduleDetail(scheduleId: string) {
 }
 
 export function getSystemHealth() {
-  return fetchJson<HealthResponse>("/system/health");
+  return fetchJson<HealthResponse>("/system/health", undefined, {
+    cacheTtlMs: 8_000,
+    telemetryLabel: "system_health",
+  });
 }
 
 export function getLatestAiInsight(query?: DashboardQuery) {
-  return fetchJson<AiInsightResponse>("/ai/insights/latest", query);
+  return fetchJson<AiInsightResponse>("/ai/insights/latest", query, {
+    cacheTtlMs: 45_000,
+    telemetryLabel: "ai_insight_latest",
+  });
 }
 
 export function getLatestAiInsights(
@@ -1027,13 +1136,19 @@ export type SalesAnalyticsBundlePayload = {
 };
 
 export function getFilmsAnalyticsBundle(query?: DashboardQuery & { top_n?: string }) {
-  return fetchJson<FilmsAnalyticsBundlePayload>("/dashboard/films/analytics", query);
+  return fetchJson<FilmsAnalyticsBundlePayload>("/dashboard/films/analytics", query, {
+    cacheTtlMs: 20_000,
+    telemetryLabel: "dashboard_films_analytics",
+  });
 }
 
 export function getSalesAnalyticsBundle(
   query?: DashboardQuery & { cinema_top_n?: string; movie_top_n?: string }
 ) {
-  return fetchJson<SalesAnalyticsBundlePayload>("/dashboard/sales/analytics", query);
+  return fetchJson<SalesAnalyticsBundlePayload>("/dashboard/sales/analytics", query, {
+    cacheTtlMs: 20_000,
+    telemetryLabel: "dashboard_sales_analytics",
+  });
 }
 
 export function getCities() {
@@ -1068,7 +1183,11 @@ export type DashboardNotification = {
 };
 
 export function getDashboardNotifications() {
-  return fetchJson<DashboardNotification[]>("/dashboard/notifications", undefined, { unwrapEnvelope: false })
+  return fetchJson<DashboardNotification[]>("/dashboard/notifications", undefined, {
+    unwrapEnvelope: false,
+    cacheTtlMs: 15_000,
+    telemetryLabel: "dashboard_notifications",
+  })
     .then(payload => {
       let data;
       if (payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as any).data)) {
@@ -1078,33 +1197,7 @@ export function getDashboardNotifications() {
       } else {
         data = [];
       }
-      return (data as any[]).map((item, index) => {
-        const rawImpact = item.impact ?? item.impact_size;
-        const normalizedImpact =
-          rawImpact == null || rawImpact === ""
-            ? "-"
-            : typeof rawImpact === "number"
-              ? `${rawImpact}`
-              : String(rawImpact);
-
-        const rawWhere = item.where ?? item.location ?? "Global";
-        const normalizedWhere =
-          typeof rawWhere === "string" && rawWhere.toLowerCase() === "network"
-            ? "Global"
-            : String(rawWhere);
-
-        return {
-          id: String(item.id ?? item.notification_id ?? `notif-${index}`),
-          type: String(item.type ?? item.notification_id ?? "notification"),
-          severity: String(item.severity ?? "info"),
-          title: String(item.title ?? "System alert"),
-          what: String(item.what ?? item.what_happened ?? item.message ?? "-"),
-          where: normalizedWhere,
-          impact: normalizedImpact,
-          action: String(item.action ?? item.recommended_action ?? "-"),
-          createdAt: String(item.createdAt ?? item.created_at ?? new Date().toISOString()),
-        } as DashboardNotification;
-      });
+      return (data as any[]).map((item, index) => mapDashboardNotification(item, index) as DashboardNotification);
     })
     .catch(err => {
       console.warn("API /dashboard/notifications returned an error:", err.message);

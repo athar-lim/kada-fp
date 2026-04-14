@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import type { DashboardQuery } from "@/lib/cinetrack-api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPinned } from "lucide-react";
+
+type LeafletMap = import("leaflet").Map;
 
 type CitySummaryItem = {
   name: string;
@@ -34,7 +35,7 @@ export default function IndonesiaFranchiseMap({
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
 
   useEffect(() => {
     let cancelled = false;
