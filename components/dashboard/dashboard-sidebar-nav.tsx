@@ -21,7 +21,7 @@ function isMenuActive(pathname: string, href: string) {
 function menuLinkClass(active: boolean, collapsed: boolean) {
   return cn(
     "group flex items-center rounded-2xl text-sm font-medium transition",
-    active ? "bg-zinc-100 text-zinc-900" : "text-zinc-900 hover:bg-zinc-50",
+    active ? "bg-muted text-foreground" : "text-foreground hover:bg-muted/60",
     collapsed ? "justify-center px-0 py-3" : "gap-3 px-5 py-4"
   );
 }
@@ -59,7 +59,7 @@ function DashboardSidebarNavInner({
     <>
       <div className="mb-8">
         {!collapsed && (
-          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             MAIN MENU
           </div>
         )}
@@ -81,7 +81,7 @@ function DashboardSidebarNavInner({
 
       <div>
         {!collapsed && (
-          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             SYSTEM
           </div>
         )}
@@ -136,7 +136,7 @@ function SidebarNavFallback({
     <>
       <div className="mb-8">
         {!collapsed && (
-          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             MAIN MENU
           </div>
         )}
@@ -157,7 +157,7 @@ function SidebarNavFallback({
       </div>
       <div>
         {!collapsed && (
-          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             SYSTEM
           </div>
         )}

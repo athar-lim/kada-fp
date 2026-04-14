@@ -32,13 +32,6 @@ function ThemeOptionButton({
   );
 }
 
-function isMenuActive(pathname: string, href: string) {
-  if (href === "/dashboard") {
-    return pathname === "/dashboard";
-  }
-  return pathname === href || pathname.startsWith(href + "/");
-}
-
 export default function SettingsPage() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -52,7 +45,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Kelola preferensi tampilan dashboard.
+          Personalize your dashboard appearance and reading comfort.
         </p>
       </div>
 
@@ -60,7 +53,7 @@ export default function SettingsPage() {
         <div className="mb-4">
           <h2 className="text-lg font-semibold">Theme</h2>
           <p className="text-sm text-muted-foreground">
-            Select your theme preference.
+            Choose how the interface looks across the dashboard.
           </p>
         </div>
 
@@ -70,9 +63,15 @@ export default function SettingsPage() {
           </div>
         ) : (
           <>
-            <div className="mb-4 text-sm text-muted-foreground">
-              Selected: <span className="font-medium text-foreground">{theme}</span> | Active:{" "}
-              <span className="font-medium text-foreground">{resolvedTheme}</span>
+            <div className="mb-4 rounded-xl border border-border bg-background px-4 py-3 text-sm">
+              <p className="text-muted-foreground">
+                Preference:{" "}
+                <span className="font-medium capitalize text-foreground">{theme}</span>
+              </p>
+              <p className="text-muted-foreground">
+                Current display mode:{" "}
+                <span className="font-medium capitalize text-foreground">{resolvedTheme}</span>
+              </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">

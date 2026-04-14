@@ -49,21 +49,21 @@ const getSeverityConfig = (severity: string) => {
     borderClass: "border-l-red-500",
     iconBg: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800",
     iconColor: "text-red-600 dark:text-red-400",
-    label: "Kritis",
+    label: "Critical",
   };
   if (severity === "warning") return {
     badgeClass: "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400",
     borderClass: "border-l-amber-500",
     iconBg: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800",
     iconColor: "text-amber-600 dark:text-amber-400",
-    label: "Peringatan",
+    label: "Warning",
   };
   if (severity === "opportunity") return {
     badgeClass: "bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400",
     borderClass: "border-l-green-500",
     iconBg: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800",
     iconColor: "text-green-600 dark:text-green-400",
-    label: "Peluang",
+    label: "Opportunity",
   };
   return {
     badgeClass: "bg-secondary text-secondary-foreground",
@@ -134,10 +134,20 @@ export default function NotificationsPage() {
     return notifications.filter((item) => item.severity === selectedSeverity);
   }, [selectedSeverity, notifications]);
 
-  const summary = useMemo(() => notifications.reduce(
-    (acc, item) => { acc.total += 1; const s = item.severity as keyof typeof acc; if (s in acc) acc[s] += 1; return acc; },
-    { total: 0, critical: 0, warning: 0, opportunity: 0 }
-  ), [notifications]);
+  const summary = useMemo(
+    () =>
+      notifications.reduce(
+        (acc, item) => {
+          const s = String(item.severity ?? "").toLowerCase();
+          if (s === "critical") acc.critical += 1;
+          else if (s === "warning") acc.warning += 1;
+          else if (s === "opportunity") acc.opportunity += 1;
+          return acc;
+        },
+        { critical: 0, warning: 0, opportunity: 0 }
+      ),
+    [notifications]
+  );
 
   const groupedNotifications = useMemo(() => ({
     critical: filteredNotifications.filter((item) => item.severity === "critical"),
@@ -145,16 +155,17 @@ export default function NotificationsPage() {
     opportunity: filteredNotifications.filter((item) => item.severity === "opportunity"),
   }), [filteredNotifications]);
 
-  const totalAlerts = summary.total + aiInsights.length;
+  const totalSystemAlerts = summary.critical + summary.warning + summary.opportunity;
+  const totalAlerts = totalSystemAlerts + aiInsights.length;
 
   // Severity filter pill buttons — shown on "all" and "system" tabs
   const SeverityFilter = () => (
     <div className="flex flex-wrap gap-2">
       {[
-        { value: "all", label: "All", count: summary.total },
-        { value: "critical", label: "Kritis", dot: "bg-red-500" as const, count: summary.critical },
-        { value: "warning", label: "Peringatan", dot: "bg-amber-500" as const, count: summary.warning },
-        { value: "opportunity", label: "Peluang", dot: "bg-green-500" as const, count: summary.opportunity },
+        { value: "all", label: "All", count: totalSystemAlerts },
+        { value: "critical", label: "Critical", dot: "bg-red-500" as const, count: summary.critical },
+        { value: "warning", label: "Warning", dot: "bg-amber-500" as const, count: summary.warning },
+        { value: "opportunity", label: "Opportunity", dot: "bg-green-500" as const, count: summary.opportunity },
       ].map((item) => (
         <button
           key={item.value}
@@ -193,7 +204,7 @@ export default function NotificationsPage() {
             )}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Riwayat insight AI dan alert operasional dalam satu halaman, lengkap dengan dampak dan rekomendasi tindakan.
+            AI insight history and operational alerts in one page, complete with impact and recommended actions.
           </p>
         </div>
 
@@ -201,7 +212,7 @@ export default function NotificationsPage() {
         <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/40 p-1 self-start">
           {([
             { id: "all", label: "All", count: totalAlerts },
-            { id: "system", label: "Sistem", count: summary.total },
+            { id: "system", label: "System", count: totalSystemAlerts },
             { id: "ai", label: "AI Insights", count: aiInsights.length },
           ] as const).map((t) => (
             <button
@@ -235,13 +246,13 @@ export default function NotificationsPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{summary.total}</div>
+            <div className="text-2xl font-bold">{totalSystemAlerts}</div>
             <p className="text-xs text-muted-foreground mt-1">Active system notifications</p>
-            {summary.total > 0 && (
+            {totalSystemAlerts > 0 && (
               <div className="mt-2 flex gap-1">
-                {summary.critical > 0 && <div className="h-1.5 rounded-full bg-red-500" style={{ width: `${(summary.critical / summary.total) * 100}%` }} />}
-                {summary.warning > 0 && <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${(summary.warning / summary.total) * 100}%` }} />}
-                {summary.opportunity > 0 && <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${(summary.opportunity / summary.total) * 100}%` }} />}
+                {summary.critical > 0 && <div className="h-1.5 rounded-full bg-red-500" style={{ width: `${(summary.critical / totalSystemAlerts) * 100}%` }} />}
+                {summary.warning > 0 && <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${(summary.warning / totalSystemAlerts) * 100}%` }} />}
+                {summary.opportunity > 0 && <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${(summary.opportunity / totalSystemAlerts) * 100}%` }} />}
               </div>
             )}
           </CardContent>
@@ -250,15 +261,15 @@ export default function NotificationsPage() {
         <Card className="border-l-4 border-l-red-500">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Kritis</CardTitle>
+              <CardTitle className="text-sm font-medium">Critical</CardTitle>
               <Zap className="h-4 w-4 text-red-500" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">{summary.critical}</div>
-            <p className="text-xs text-muted-foreground mt-1">Butuh perhatian segera</p>
+            <p className="text-xs text-muted-foreground mt-1">Needs immediate attention</p>
             <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-red-500" style={{ width: summary.total > 0 ? `${(summary.critical / summary.total) * 100}%` : "0%" }} />
+            <div className="h-full rounded-full bg-red-500" style={{ width: totalSystemAlerts > 0 ? `${(summary.critical / totalSystemAlerts) * 100}%` : "0%" }} />
             </div>
           </CardContent>
         </Card>
@@ -266,15 +277,15 @@ export default function NotificationsPage() {
         <Card className="border-l-4 border-l-amber-500">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Peringatan</CardTitle>
+              <CardTitle className="text-sm font-medium">Warning</CardTitle>
               <AlertTriangle className="h-4 w-4 text-amber-500" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-600">{summary.warning}</div>
-            <p className="text-xs text-muted-foreground mt-1">Anomali performa</p>
+            <p className="text-xs text-muted-foreground mt-1">Performance anomalies</p>
             <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-amber-500" style={{ width: summary.total > 0 ? `${(summary.warning / summary.total) * 100}%` : "0%" }} />
+              <div className="h-full rounded-full bg-amber-500" style={{ width: totalSystemAlerts > 0 ? `${(summary.warning / totalSystemAlerts) * 100}%` : "0%" }} />
             </div>
           </CardContent>
         </Card>
@@ -282,7 +293,7 @@ export default function NotificationsPage() {
         <Card className="border-l-4 border-l-green-500">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Peluang</CardTitle>
+              <CardTitle className="text-sm font-medium">Opportunity</CardTitle>
               <TrendingUp className="h-4 w-4 text-green-500" />
             </div>
           </CardHeader>
@@ -290,7 +301,7 @@ export default function NotificationsPage() {
             <div className="text-2xl font-bold text-green-600">{summary.opportunity}</div>
             <p className="text-xs text-muted-foreground mt-1">Potensi optimasi</p>
             <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-green-500" style={{ width: summary.total > 0 ? `${(summary.opportunity / summary.total) * 100}%` : "0%" }} />
+              <div className="h-full rounded-full bg-green-500" style={{ width: totalSystemAlerts > 0 ? `${(summary.opportunity / totalSystemAlerts) * 100}%` : "0%" }} />
             </div>
           </CardContent>
         </Card>
@@ -338,14 +349,11 @@ export default function NotificationsPage() {
           ) : (
             <>
               {([
-                { key: "critical", title: "Isu Kritis", icon: Zap, items: groupedNotifications.critical, colorClass: "text-red-600" },
+                { key: "critical", title: "Critical Issues", icon: Zap, items: groupedNotifications.critical, colorClass: "text-red-600" },
                 { key: "warning", title: "Performance Anomalies", icon: AlertTriangle, items: groupedNotifications.warning, colorClass: "text-amber-600" },
-                { key: "opportunity", title: "Peluang Optimasi", icon: LightbulbIcon, items: groupedNotifications.opportunity, colorClass: "text-green-600" },
+                { key: "opportunity", title: "Optimization Opportunities", icon: LightbulbIcon, items: groupedNotifications.opportunity, colorClass: "text-green-600" },
               ].map((group) => {
                 const Icon = group.icon;
-                // In "all" mode, skip empty groups; in "system" mode, always show all groups
-                if (activeTab === "all" && group.items.length === 0) return null;
-
                 return (
                   <section key={group.key} className="space-y-4">
                     <div className="flex items-center gap-2">
