@@ -21,6 +21,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -44,6 +45,10 @@ import {
 import { Clock, Ticket, DollarSign, Calendar, AlertTriangle, Clock4, ArrowUp, ArrowDown, FileDown } from 'lucide-react';
 import { DateRangeFilter } from '@/components/filters/date-range-filter';
 import { Button } from '@/components/ui/button';
+import {
+  DashboardMetricCard,
+  DashboardSectionHeader,
+} from "@/components/dashboard/dashboard-ui-blocks";
 
 import {
   getCities,
@@ -54,10 +59,9 @@ import {
   type SalesAnalyticsBundlePayload,
 } from "@/lib/cinetrack-api";
 import { useDashboardUrlFilters } from "@/hooks/use-dashboard-url-filters";
+import { getOccupancyTextClass } from "@/lib/dashboard-ui";
 
-// ===========================
-// TYPE DEFININTS
-// ===========================
+// --- Types ---
 
 type SalesPayload = {
   overview: SalesAnalyticsBundlePayload["overview"] | null;
@@ -70,18 +74,28 @@ type SalesPayload = {
   operationalRisk: SalesAnalyticsBundlePayload["operational_risk"] | null;
 };
 
-// ===========================
-// STYLE HELPERS & UTILS
-// ===========================
+// --- Helpers ---
 
 const formatCurrency = (value: number | undefined | null) => {
     if (value == null) return "-";
     return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(value);
 }
 
-// ===========================
-// PAGE COMPONENT
-// ===========================
+const normalizeRecommendation = (text: string) => {
+    return text
+        .replace(
+            /Demand bagus,\s*evaluasi harga dan alokasi studio agar monetisasi naik\./gi,
+            "Demand is strong, evaluate pricing and studio allocation to increase monetization."
+        )
+        .replace(/Demand bagus/gi, "Demand is strong")
+        .replace(/evaluasi harga/gi, "review pricing")
+        .replace(/alokasi studio/gi, "studio allocation")
+        .replace(/monetisasi naik/gi, "increase monetization")
+        .replace(/\s+/g, " ")
+        .trim();
+};
+
+// --- Component ---
 
 export default function SalesAnalyticsPage() {
     const {
@@ -99,7 +113,6 @@ export default function SalesAnalyticsPage() {
 
     const [cities, setCities] = useState<string[]>([]);
     const [cinemas, setCinemas] = useState<CinemaBreakdownResponse["breakdown"]>([]);
-    const [filtersLoading, setFiltersLoading] = useState(true);
     const [loading, setLoading] = useState(true);
     
     const [dashboardData, setDashboardData] = useState<SalesPayload>({
@@ -126,11 +139,9 @@ export default function SalesAnalyticsPage() {
         let cancelled = false;
 
         const loadFilters = async () => {
-            setFiltersLoading(true);
-            const [citiesResult, cinemaResult, healthResult] = await Promise.allSettled([
+            const [citiesResult, cinemaResult] = await Promise.allSettled([
                 getCities(),
                 getCinemaBreakdown(),
-                getSystemHealth(),
             ]);
 
             if (cancelled) return;
@@ -138,16 +149,17 @@ export default function SalesAnalyticsPage() {
             if (citiesResult.status === "fulfilled") setCities(citiesResult.value);
             if (cinemaResult.status === "fulfilled") setCinemas(cinemaResult.value.breakdown);
 
-            if (
-                healthResult.status === "fulfilled" &&
-                healthResult.value.last_data_in &&
-                !dateRangeRef.current?.from
-            ) {
-                const endDate = new Date(healthResult.value.last_data_in);
-                const startDate = subDays(endDate, 6);
-                setDateRange({ from: startDate, to: endDate });
+            // Keep health fetch async so dashboard data can load immediately.
+            if (!dateRangeRef.current?.from) {
+                getSystemHealth()
+                    .then((health) => {
+                        if (cancelled || !health.last_data_in || dateRangeRef.current?.from) return;
+                        const endDate = new Date(health.last_data_in);
+                        const startDate = subDays(endDate, 6);
+                        setDateRange({ from: startDate, to: endDate });
+                    })
+                    .catch(() => {});
             }
-            setFiltersLoading(false);
         };
 
         loadFilters();
@@ -156,7 +168,6 @@ export default function SalesAnalyticsPage() {
 
     // Load Data
     useEffect(() => {
-        if (filtersLoading) return;
         let cancelled = false;
 
         const loadDashboard = async () => {
@@ -197,7 +208,7 @@ export default function SalesAnalyticsPage() {
 
         loadDashboard();
         return () => { cancelled = true; };
-    }, [query, filtersLoading]);
+    }, [query]);
 
     // Data Processing
     const totalTickets = dashboardData.overview?.total_tickets ?? 0;
@@ -228,20 +239,20 @@ export default function SalesAnalyticsPage() {
             
             const tickets = t.total_tickets ?? 0;
             
-            // Hari
+            // Day
             dayMap.set(dateObj.getTime(), {
                 name: format(dateObj, "d MMM", { locale: id }),
                 tickets: tickets,
                 isWeekend: isWeekend(dateObj)
             });
 
-            // Minggu
+            // Week
             const weekKey = format(startOfWeek(dateObj, { weekStartsOn: 1 }), "w-yyyy");
             const weekName = `Mg ${format(dateObj, "w")}, ${format(dateObj, "MMM")}`;
             if (!weekMap.has(weekKey)) weekMap.set(weekKey, { name: weekName, tickets: 0 });
             weekMap.get(weekKey).tickets += tickets;
 
-            // Bulan
+            // Month
             const monthKey = format(startOfMonth(dateObj), "yyyy-MM");
             const monthName = format(dateObj, "MMM yyyy", { locale: id });
             if (!monthMap.has(monthKey)) monthMap.set(monthKey, { name: monthName, tickets: 0 });
@@ -275,7 +286,7 @@ export default function SalesAnalyticsPage() {
     const weekendWeekdayChart = useMemo(() => {
         if (!dashboardData.weekendWeekday?.breakdown?.length) return [];
         return dashboardData.weekendWeekday.breakdown.map((row) => ({
-            name: row.day_type === "weekend" ? "Akhir pekan" : "Hari kerja",
+            name: row.day_type === "weekend" ? "Weekend" : "Weekday",
             revenue: row.total_revenue,
             tickets: row.total_tickets ?? 0,
             occupancy: row.occupancy ?? 0,
@@ -308,8 +319,9 @@ export default function SalesAnalyticsPage() {
 
     const busiestHour = dashboardData.timeSlots?.peak_sales_hour?.time_slot ?? "-";
     const quietestHour = dashboardData.timeSlots?.quiet_hour?.time_slot ?? "-";
-    const peakHourRecommendation =
-        dashboardData.timeSlots?.peak_sales_hour?.recommendation ?? "";
+    const peakHourRecommendation = normalizeRecommendation(
+        dashboardData.timeSlots?.peak_sales_hour?.recommendation ?? ""
+    );
 
     const cancelledShows = dashboardData.operationalRisk?.summary?.cancelled ?? 0;
     const delayedShows = dashboardData.operationalRisk?.summary?.delayed ?? 0;
@@ -352,7 +364,7 @@ export default function SalesAnalyticsPage() {
 
     // ── Auto-computed insights ──────────────────────────────────────────────
     const topMovie = revenuePerMovie[0];
-    const winnerPeriod = dashboardData.weekendWeekday?.summary?.winning_period;
+    const winningPeriod = dashboardData.weekendWeekday?.summary?.winning_period;
     const revGap = dashboardData.weekendWeekday?.summary?.revenue_gap;
     const topPayment = paymentBreakdownRows[0];
     const avgOccupancy = occupancyPerCinema.length
@@ -361,22 +373,22 @@ export default function SalesAnalyticsPage() {
     const lowOccupancy = occupancyPerCinema.filter(c => c.occupancy < 40);
     const dateLabel = dateRange?.from && dateRange?.to
         ? `${format(dateRange.from, "d MMM")}–${format(dateRange.to, "d MMM yyyy")}`
-        : "periode aktif";
+        : "active period";
 
     const insightBanners: { icon: React.ReactNode; text: string; color: string }[] = [];
 
     if (topMovie)
         insightBanners.push({
             icon: <ArrowUp className="h-3.5 w-3.5" />,
-            text: `Film penghasil revenue tertinggi selama ${dateLabel}: ${topMovie.name} (${topMovie.contribution.toFixed(1)}% dari total).`,
+            text: `Top revenue film during ${dateLabel}: ${topMovie.name} (${topMovie.contribution.toFixed(1)}% of total).`,
             color: "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400",
         });
 
-    if (winnerPeriod && revGap != null)
+    if (winningPeriod && revGap != null)
         insightBanners.push({
-            icon: winnerPeriod === "weekend" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />,
-            text: `${winnerPeriod === "weekend" ? "Akhir pekan unggul" : "Hari kerja unggul"} selisih ${formatCurrency(revGap)} dibanding sisi satunya.`,
-            color: winnerPeriod === "weekend"
+            icon: winningPeriod === "weekend" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />,
+            text: `${winningPeriod === "weekend" ? "Weekend leads" : "Weekday leads"} with a ${formatCurrency(revGap)} gap.`,
+            color: winningPeriod === "weekend"
                 ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400"
                 : "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400",
         });
@@ -384,20 +396,60 @@ export default function SalesAnalyticsPage() {
     if (topPayment)
         insightBanners.push({
             icon: <DollarSign className="h-3.5 w-3.5" />,
-            text: `Metode pembayaran terpopuler: ${topPayment.payment_type} (${topPayment.usage_rate.toFixed(1)}% transaksi).`,
+            text: `Most used payment method: ${topPayment.payment_type} (${topPayment.usage_rate.toFixed(1)}% transactions).`,
             color: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:text-purple-400",
         });
 
     if (lowOccupancy.length > 0)
         insightBanners.push({
             icon: <AlertTriangle className="h-3.5 w-3.5" />,
-            text: `${lowOccupancy.length} bioskop dengan okupansi <40%: ${lowOccupancy.slice(0,2).map(c => c.name).join(", ")}. Pertimbangkan promo lokal.`,
+            text: `${lowOccupancy.length} cinemas with occupancy <40%: ${lowOccupancy.slice(0,2).map(c => c.name).join(", ")}. Consider local promotions.`,
             color: "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400",
         });
 
-    if (loading && !dashboardData.overview) {
-        return <div className="flex h-64 items-center justify-center text-muted-foreground">Memuat data penjualan...</div>;
-    }
+    const handleExportData = () => {
+        const rows = (dashboardData.revenueByCinema?.breakdown ?? [])
+            .map((item) => ({
+                rank: item.rank ?? "-",
+                cinema_id: item.cinema_id ?? "-",
+                cinema_name: item.cinema_name ?? "-",
+                city: item.city ?? "-",
+                total_tickets: item.total_tickets ?? 0,
+                total_revenue: item.total_revenue ?? 0,
+                occupancy: item.occupancy ?? 0,
+            }));
+
+        if (rows.length === 0) {
+            window.alert("No data available to export.");
+            return;
+        }
+
+        const headers = Object.keys(rows[0]);
+        const csvLines = [
+            headers.join(","),
+            ...rows.map((row) =>
+                headers
+                    .map((header) => {
+                        const value = row[header as keyof typeof row];
+                        const escaped = String(value).replace(/"/g, '""');
+                        return `"${escaped}"`;
+                    })
+                    .join(",")
+            ),
+        ];
+
+        const blob = new Blob([csvLines.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `sales-analytics-${format(new Date(), "yyyy-MM-dd-HHmm")}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    const isInitialLoading = loading && !dashboardData.overview;
 
     return (
         <div className="space-y-8">
@@ -407,34 +459,34 @@ export default function SalesAnalyticsPage() {
                 <div>
                     <h1 className="text-2xl font-bold">Sales Analytics</h1>
                     <p className="text-muted-foreground text-sm mt-1">
-                        Kinerja penjualan tiket, pendapatan, dan okupansi — {dateLabel}
+                        Ticket sales, revenue, and occupancy performance — {dateLabel}
                     </p>
                 </div>
                 <div className="flex flex-col gap-2 md:flex-row md:items-center">
                     <div className="w-full md:w-64">
-                        <DateRangeFilter value={dateRange} onApply={setDateRange} triggerLabel="Pilih Periode" />
+                        <DateRangeFilter value={dateRange} onApply={setDateRange} triggerLabel="Select Period" />
                     </div>
                     <div className="w-full md:w-[150px]">
                         <Select value={selectedCity} onValueChange={setCity}>
-                            <SelectTrigger><SelectValue placeholder="Semua Kota" /></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="All Cities" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">Semua Kota</SelectItem>
+                                <SelectItem value="all">All Cities</SelectItem>
                                 {cities.map((city) => <SelectItem key={city} value={city}>{city}</SelectItem>)}
                             </SelectContent>
                         </Select>
                     </div>
                     <div className="w-full md:w-[180px]">
                         <Select value={selectedCinema} onValueChange={setCinema}>
-                            <SelectTrigger><SelectValue placeholder="Semua Bioskop" /></SelectTrigger>
+                            <SelectTrigger><SelectValue placeholder="All Cinemas" /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">Semua Bioskop</SelectItem>
+                                <SelectItem value="all">All Cinemas</SelectItem>
                                 {cinemas
                                     .filter((c) => selectedCity === "all" || c.city === selectedCity)
                                     .map((c) => <SelectItem key={c.cinema_id} value={c.cinema_id}>{c.cinema_name}</SelectItem>)}
                             </SelectContent>
                         </Select>
                     </div>
-                    <Button variant="outline" className="w-full md:w-auto">
+                    <Button variant="outline" className="w-full md:w-auto" onClick={handleExportData}>
                         <FileDown className="mr-2 h-4 w-4" />
                         <span>Export Data</span>
                     </Button>
@@ -455,38 +507,34 @@ export default function SalesAnalyticsPage() {
 
             <Separator /> */}
 
-            {/* ── SECTION 1 — RINGKASAN KPI ────────────────────────────── */}
+            {/* ── SECTION 1 — KPI SUMMARY ─────────────────────────────── */}
             <section className="space-y-4 text-foreground">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="text-base font-semibold">Ringkasan Penjualan</h2>
-                        <p className="text-xs text-muted-foreground">KPI utama untuk periode terpilih.</p>
-                    </div>
-                    {avgOccupancy != null && (
-                        <Badge variant="outline" className={`text-xs ${avgOccupancy >= 70 ? "border-green-300 text-green-700" : avgOccupancy >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
-                            Avg. Okupansi: {avgOccupancy.toFixed(1)}%
-                        </Badge>
-                    )}
-                </div>
+                <DashboardSectionHeader
+                    title="Sales Summary"
+                    description="Key KPIs for the selected period."
+                    action={
+                        avgOccupancy != null ? (
+                            <Badge variant="outline" className={`text-xs ${avgOccupancy >= 70 ? "border-green-300 text-green-700" : avgOccupancy >= 40 ? "border-amber-300 text-amber-700" : "border-red-300 text-red-700"}`}>
+                                Avg. Occupancy: {avgOccupancy.toFixed(1)}%
+                            </Badge>
+                        ) : undefined
+                    }
+                />
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     {[
-                        { label: "Total Tiket Terjual", value: totalTickets.toLocaleString("id-ID"), sub: `Rata-rata ${avgTicketsPerDay.toFixed(0)} tiket/hari`, icon: <Ticket className="h-4 w-4" /> },
-                        { label: "Total Revenue", value: formatCurrency(totalRevenue), sub: "Pendapatan kotor periode ini", icon: <DollarSign className="h-4 w-4" /> },
-                        { label: "Rata-rata per Hari", value: `${avgTicketsPerDay.toFixed(0)} tiket`, sub: `Dalam ${Math.round(diffDays)} hari aktif`, icon: <Calendar className="h-4 w-4" /> },
-                        { label: "Avg. Harga Tiket", value: formatCurrency(avgTicketPrice), sub: "Harga rata-rata per tiket", icon: <DollarSign className="h-4 w-4" /> },
+                        { label: "Total Tickets Sold", value: totalTickets.toLocaleString("id-ID"), sub: `Average ${avgTicketsPerDay.toFixed(0)} tickets/day`, icon: <Ticket className="h-4 w-4" /> },
+                        { label: "Total Revenue", value: formatCurrency(totalRevenue), sub: "Gross revenue in this period", icon: <DollarSign className="h-4 w-4" /> },
+                        { label: "Average per Day", value: `${avgTicketsPerDay.toFixed(0)} tickets`, sub: `Across ${Math.round(diffDays)} active days`, icon: <Calendar className="h-4 w-4" /> },
+                        { label: "Avg. Ticket Price", value: formatCurrency(avgTicketPrice), sub: "Average price per ticket", icon: <DollarSign className="h-4 w-4" /> },
                     ].map((card) => (
-                        <Card key={card.label}>
-                            <CardHeader className="pb-2">
-                                <div className="flex items-center justify-between text-muted-foreground">
-                                    <CardTitle className="text-sm font-medium text-foreground">{card.label}</CardTitle>
-                                    {card.icon}
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">{card.value}</div>
-                                <p className="mt-1 text-xs text-muted-foreground">{card.sub}</p>
-                            </CardContent>
-                        </Card>
+                        <DashboardMetricCard
+                            key={card.label}
+                            title={card.label}
+                            icon={card.icon}
+                            loading={isInitialLoading}
+                            value={card.value}
+                            subtitle={card.sub}
+                        />
                     ))}
                 </div>
 
@@ -495,22 +543,22 @@ export default function SalesAnalyticsPage() {
                     <CardHeader className="pb-2">
                         <div className="flex items-center justify-between">
                             <div>
-                                <CardTitle className="text-sm font-medium">Tren Tiket Terjual</CardTitle>
-                                <CardDescription>Pergerakan penjualan per hari, minggu, dan bulan.</CardDescription>
+                                <CardTitle className="text-sm font-medium">Ticket Sales Trend</CardTitle>
+                                <CardDescription>Sales movement by day, week, and month.</CardDescription>
                             </div>
                         </div>
                     </CardHeader>
                     <CardContent className="pt-2">
-                        <Tabs defaultValue="hari" className="w-full">
+                        <Tabs defaultValue="day" className="w-full">
                             <TabsList>
-                                <TabsTrigger value="hari">Harian</TabsTrigger>
-                                <TabsTrigger value="minggu">Mingguan</TabsTrigger>
-                                <TabsTrigger value="bulan">Bulanan</TabsTrigger>
+                                <TabsTrigger value="day">Daily</TabsTrigger>
+                                <TabsTrigger value="week">Weekly</TabsTrigger>
+                                <TabsTrigger value="month">Monthly</TabsTrigger>
                             </TabsList>
                             {[
-                                { value: "hari", data: ticketsPerDay, note: "● = akhir pekan" },
-                                { value: "minggu", data: ticketsPerWeek, note: null },
-                                { value: "bulan", data: ticketsPerMonth, note: null },
+                                { value: "day", data: ticketsPerDay, note: "● = weekend" },
+                                { value: "week", data: ticketsPerWeek, note: null },
+                                { value: "month", data: ticketsPerMonth, note: null },
                             ].map(({ value, data, note }) => (
                                 <TabsContent key={value} value={value} className="h-[260px] pt-4">
                                     {data.length > 0 ? (
@@ -526,10 +574,10 @@ export default function SalesAnalyticsPage() {
                                                     </filter>
                                                 </defs>
                                                 <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => value === "hari" ? `${v}` : `${Math.round(Number(v) / 1000)}k`} />
+                                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => value === "day" ? `${v}` : `${Math.round(Number(v) / 1000)}k`} />
                                                 <Tooltip
                                                     contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))" }}
-                                                    formatter={(v: number) => [v.toLocaleString("id-ID"), "Tiket"]}
+                                                    formatter={(v: number) => [v.toLocaleString("id-ID"), "Tickets"]}
                                                 />
                                                 {note && (
                                                     <Legend verticalAlign="top" align="right"
@@ -546,9 +594,9 @@ export default function SalesAnalyticsPage() {
                                                     stroke="hsl(var(--primary))" strokeWidth={2.5}
                                                     style={{ filter: `url(#glow-${value})` }}
                                                     activeDot={{ r: 6 }}
-                                                    dot={(props: any) => {
+                                                    dot={(props: { cx?: number; cy?: number; payload?: { isWeekend?: boolean } }) => {
                                                         const { cx, cy, payload } = props;
-                                                        if (payload.isWeekend)
+                                                        if (payload?.isWeekend)
                                                             return <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={4} stroke="hsl(var(--primary))" strokeWidth={2} fill="hsl(var(--background))" />;
                                                         return <></>;
                                                     }}
@@ -557,7 +605,7 @@ export default function SalesAnalyticsPage() {
                                         </ResponsiveContainer>
                                     ) : (
                                         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                                            Data tren belum tersedia untuk periode ini.
+                                            Trend data is not available for this period.
                                         </div>
                                     )}
                                 </TabsContent>
@@ -574,8 +622,8 @@ export default function SalesAnalyticsPage() {
                 <>
                     <section className="space-y-4 text-foreground">
                         <div>
-                            <h2 className="text-base font-semibold">Revenue Tahunan</h2>
-                            <p className="text-xs text-muted-foreground">Tren komprehensif pendapatan franchise selama 12 bulan terakhir.</p>
+                            <h2 className="text-base font-semibold">Yearly Revenue</h2>
+                            <p className="text-xs text-muted-foreground">Comprehensive franchise revenue trend over the last 12 months.</p>
                         </div>
                         <Card>
                             <CardContent className="h-[260px] pt-6">
@@ -598,13 +646,13 @@ export default function SalesAnalyticsPage() {
                 </>
             )}
 
-            {/* ── SECTION 3 — REVENUE & OKUPANSI ──────────────────────── */}
+            {/* ── SECTION 3 — REVENUE & OCCUPANCY ─────────────────────── */}
             <section className="space-y-4 text-foreground">
                 <div>
-                    <h2 className="text-base font-semibold">Revenue &amp; Okupansi</h2>
+                    <h2 className="text-base font-semibold">Revenue &amp; Occupancy</h2>
                     <p className="text-xs text-muted-foreground">
-                        Pendapatan per film (top 7) dan keterisian kursi per bioskop.
-                        {topMovie && ` ${topMovie.name} memimpin dengan kontribusi ${topMovie.contribution.toFixed(1)}%.`}
+                        Revenue per movie (top 7) and seat occupancy per cinema.
+                        {topMovie && ` ${topMovie.name} leads with a contribution of ${topMovie.contribution.toFixed(1)}%.`}
                     </p>
                 </div>
                 <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-5">
@@ -612,7 +660,7 @@ export default function SalesAnalyticsPage() {
                         <Card>
                             <CardHeader className="pb-2">
                                 <CardTitle className="text-sm font-medium">Revenue per Film (Top 7)</CardTitle>
-                                <CardDescription>Hover bar untuk melihat detail kontribusi.</CardDescription>
+                                <CardDescription>Hover bars to view contribution details.</CardDescription>
                             </CardHeader>
                             <CardContent className="h-[320px]">
                                 {revenuePerMovie.length > 0 ? (
@@ -633,7 +681,7 @@ export default function SalesAnalyticsPage() {
                                         </BarChart>
                                     </ResponsiveContainer>
                                 ) : (
-                                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Belum ada data revenue per film.</div>
+                                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No revenue-by-movie data yet.</div>
                                 )}
                             </CardContent>
                             {revenuePerMovie.length > 0 && (
@@ -642,9 +690,9 @@ export default function SalesAnalyticsPage() {
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead>Film</TableHead>
-                                                <TableHead className="text-right hidden sm:table-cell">Tiket</TableHead>
+                                                <TableHead className="text-right hidden sm:table-cell">Tickets</TableHead>
                                                 <TableHead className="text-right">Revenue</TableHead>
-                                                <TableHead className="text-right">Kontribusi</TableHead>
+                                                <TableHead className="text-right">Contribution</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -668,9 +716,9 @@ export default function SalesAnalyticsPage() {
                     <div className="lg:col-span-2">
                         <Card className="h-full">
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Okupansi per Bioskop</CardTitle>
+                                <CardTitle className="text-sm font-medium">Occupancy by Cinema</CardTitle>
                                 <CardDescription>
-                                    {avgOccupancy != null ? `Rata-rata ${avgOccupancy.toFixed(1)}% — ${lowOccupancy.length > 0 ? `${lowOccupancy.length} bioskop di bawah 40%` : "semua bioskop di level aman"}` : "Keterisian kursi tiap bioskop."}
+                                    {avgOccupancy != null ? `Average ${avgOccupancy.toFixed(1)}% — ${lowOccupancy.length > 0 ? `${lowOccupancy.length} cinemas below 40%` : "all cinemas are in a healthy range"}` : "Seat occupancy for each cinema."}
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
@@ -678,8 +726,8 @@ export default function SalesAnalyticsPage() {
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead>Bioskop</TableHead>
-                                                <TableHead className="text-right">Okupansi</TableHead>
+                                                <TableHead>Cinema</TableHead>
+                                                <TableHead className="text-right">Occupancy</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -691,7 +739,7 @@ export default function SalesAnalyticsPage() {
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         <div className="flex items-center justify-end gap-2">
-                                                            <span className={`text-sm font-bold ${f.occupancy >= 70 ? "text-green-600" : f.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                                                            <span className={`text-sm font-bold ${getOccupancyTextClass(f.occupancy)}`}>
                                                                 {f.occupancy.toFixed(1)}%
                                                             </span>
                                                             <Progress
@@ -705,7 +753,7 @@ export default function SalesAnalyticsPage() {
                                         </TableBody>
                                     </Table>
                                 ) : (
-                                    <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">Belum ada data okupansi.</div>
+                                    <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">No occupancy data yet.</div>
                                 )}
                             </CardContent>
                         </Card>
@@ -715,26 +763,26 @@ export default function SalesAnalyticsPage() {
 
             <Separator />
 
-            {/* ── SECTION 4 — AKHIR PEKAN vs HARI KERJA ───────────────── */}
+            {/* ── SECTION 4 — WEEKEND vs WEEKDAY ──────────────────────── */}
             {weekendWeekdayChart.length > 0 && (
                 <>
                     <section className="space-y-4 text-foreground">
                         <div>
-                            <h2 className="text-base font-semibold">Akhir Pekan vs Hari Kerja</h2>
+                            <h2 className="text-base font-semibold">Weekend vs Weekday</h2>
                             <p className="text-xs text-muted-foreground">
-                                {winnerPeriod === "weekend" ? "Akhir pekan unggul" : "Hari kerja unggul"}
-                                {revGap != null ? ` dengan selisih ${formatCurrency(revGap)}.` : "."}
-                                {" "}Gunakan data ini untuk strategi jadwal dan promo.
+                                {winningPeriod === "weekend" ? "Weekend leads" : "Weekday leads"}
+                                {revGap != null ? ` with a gap of ${formatCurrency(revGap)}.` : "."}
+                                {" "}Use this data for scheduling and promotions strategy.
                             </p>
                         </div>
                         <div className="grid gap-6 md:grid-cols-3">
                             {weekendWeekdayChart.map((row) => (
-                                <Card key={row.name} className={winnerPeriod === "weekend" && row.name === "Akhir pekan" ? "border-primary/30 bg-primary/5" : winnerPeriod === "weekday" && row.name === "Hari kerja" ? "border-primary/30 bg-primary/5" : ""}>
+                                <Card key={row.name} className={winningPeriod === "weekend" && row.name === "Weekend" ? "border-primary/30 bg-primary/5" : winningPeriod === "weekday" && row.name === "Weekday" ? "border-primary/30 bg-primary/5" : ""}>
                                     <CardHeader className="pb-2">
                                         <div className="flex items-center justify-between">
                                             <CardTitle className="text-sm font-medium">{row.name}</CardTitle>
-                                            {((winnerPeriod === "weekend" && row.name === "Akhir pekan") || (winnerPeriod !== "weekend" && row.name === "Hari kerja")) && (
-                                                <Badge className="bg-primary text-primary-foreground text-[10px]">Unggul</Badge>
+                                            {((winningPeriod === "weekend" && row.name === "Weekend") || (winningPeriod !== "weekend" && row.name === "Weekday")) && (
+                                                <Badge className="bg-primary text-primary-foreground text-[10px]">Leading</Badge>
                                             )}
                                         </div>
                                     </CardHeader>
@@ -745,12 +793,12 @@ export default function SalesAnalyticsPage() {
                                         </div>
                                         <div className="flex gap-4">
                                             <div>
-                                                <p className="text-[10px] text-muted-foreground uppercase">Tiket</p>
+                                                <p className="text-[10px] text-muted-foreground uppercase">Tickets</p>
                                                 <p className="text-sm font-semibold">{row.tickets.toLocaleString("id-ID")}</p>
                                             </div>
                                             <div>
-                                                <p className="text-[10px] text-muted-foreground uppercase">Okupansi</p>
-                                                <p className={`text-sm font-semibold ${row.occupancy >= 70 ? "text-green-600" : row.occupancy >= 40 ? "text-amber-600" : "text-red-600"}`}>
+                                                <p className="text-[10px] text-muted-foreground uppercase">Occupancy</p>
+                                                <p className={`text-sm font-semibold ${getOccupancyTextClass(row.occupancy)}`}>
                                                     {row.occupancy.toFixed(1)}%
                                                 </p>
                                             </div>
@@ -761,7 +809,7 @@ export default function SalesAnalyticsPage() {
                             {/* Summary card */}
                             <Card className="border-dashed">
                                 <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium">Distribusi Chart</CardTitle>
+                                    <CardTitle className="text-sm font-medium">Distribution Chart</CardTitle>
                                 </CardHeader>
                                 <CardContent className="h-[120px]">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -783,33 +831,33 @@ export default function SalesAnalyticsPage() {
                 </>
             )}
 
-            {/* ── SECTION 5 — METODE PEMBAYARAN ────────────────────────── */}
+            {/* ── SECTION 5 — PAYMENT METHODS ─────────────────────────── */}
             {paymentBreakdownRows.length > 0 && (
                 <>
                     <section className="space-y-4 text-foreground">
                         <div>
-                            <h2 className="text-base font-semibold">Metode Pembayaran</h2>
+                            <h2 className="text-base font-semibold">Payment Methods</h2>
                             <p className="text-xs text-muted-foreground">
-                                Proporsi transaksi dan profitabilitas bersih.
-                                {topPayment && ` Metode dominan: ${topPayment.payment_type} (${topPayment.usage_rate.toFixed(1)}%).`}
+                                Transaction proportion and net profitability.
+                                {topPayment && ` Top method: ${topPayment.payment_type} (${topPayment.usage_rate.toFixed(1)}%).`}
                             </p>
                         </div>
                         <Card>
                             <CardHeader className="pb-2">
                                 <div className="flex items-center justify-between">
-                                    <CardTitle className="text-sm font-medium">Mix Pembayaran</CardTitle>
-                                    <CardDescription>Total transaksi: {(dashboardData.payment?.total_transactions ?? 0).toLocaleString("id-ID")}</CardDescription>
+                                    <CardTitle className="text-sm font-medium">Payment Mix</CardTitle>
+                                    <CardDescription>Total transactions: {(dashboardData.payment?.total_transactions ?? 0).toLocaleString("id-ID")}</CardDescription>
                                 </div>
                             </CardHeader>
                             <CardContent>
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead>Metode</TableHead>
-                                            <TableHead className="text-right">Transaksi</TableHead>
-                                            <TableHead className="text-right">% Pakai</TableHead>
-                                            <TableHead className="text-right hidden md:table-cell">Revenue Kotor</TableHead>
-                                            <TableHead className="text-right">Profit Bersih</TableHead>
+                                            <TableHead>Method</TableHead>
+                                            <TableHead className="text-right">Transactions</TableHead>
+                                            <TableHead className="text-right">% Usage</TableHead>
+                                            <TableHead className="text-right hidden md:table-cell">Gross Revenue</TableHead>
+                                            <TableHead className="text-right">Net Profit</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -839,17 +887,17 @@ export default function SalesAnalyticsPage() {
                 </>
             )}
 
-            {/* ── SECTION 6 — JAM PUNCAK ───────────────────────────────── */}
+            {/* ── SECTION 6 — PEAK HOURS ───────────────────────────────── */}
             <section className="space-y-4 text-foreground">
                 <div>
-                    <h2 className="text-base font-semibold">Jam Puncak (Peak Hours)</h2>
+                    <h2 className="text-base font-semibold">Peak Hours (Peak Hours)</h2>
                     <p className="text-xs text-muted-foreground">
-                        Distribusi penjualan per slot waktu. Jam tersibuk: <strong>{busiestHour}</strong> — jam sepi: <strong>{quietestHour}</strong>.
+                        Sales distribution by time slot. Busiest hour: <strong>{busiestHour}</strong> — quiet hour: <strong>{quietestHour}</strong>.
                     </p>
                 </div>
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Tiket per Slot Waktu</CardTitle>
+                        <CardTitle className="text-sm font-medium">Tickets per Time Slot</CardTitle>
                     </CardHeader>
                     <CardContent className="h-[260px]">
                         {ticketsByHour.length > 0 ? (
@@ -860,21 +908,21 @@ export default function SalesAnalyticsPage() {
                                     <Tooltip
                                         contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))" }}
                                         cursor={{ fill: "hsl(var(--secondary))" }}
-                                        formatter={(v: number) => [v.toLocaleString("id-ID"), "Tiket"]}
+                                        formatter={(v: number) => [v.toLocaleString("id-ID"), "Tickets"]}
                                     />
                                     <Bar dataKey="tickets" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Data jam belum tersedia.</div>
+                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Hourly data is not available yet.</div>
                         )}
                     </CardContent>
                 </Card>
                 <div className="grid gap-4 md:grid-cols-3">
                     {[
-                        { label: "Jam Tersibuk", value: busiestHour, sub: "Volume tiket tertinggi", icon: <Clock4 className="h-4 w-4 text-green-500" />, accentClass: "border-l-4 border-l-green-500" },
-                        { label: "Jam Sepi", value: quietestHour, sub: "Volume tiket terendah", icon: <Clock className="h-4 w-4 text-amber-500" />, accentClass: "border-l-4 border-l-amber-500" },
-                        { label: "Rekomendasi Slot", value: null, sub: null, icon: <AlertTriangle className="h-4 w-4 text-muted-foreground" />, accentClass: "border-l-4 border-l-muted" },
+                        { label: "Busiest Hour", value: busiestHour, sub: "Highest ticket volume", icon: <Clock4 className="h-4 w-4 text-green-500" />, accentClass: "border-l-4 border-l-green-500" },
+                        { label: "Quiet Hour", value: quietestHour, sub: "Lowest ticket volume", icon: <Clock className="h-4 w-4 text-amber-500" />, accentClass: "border-l-4 border-l-amber-500" },
+                        { label: "Slot Recommendation", value: null, sub: null, icon: <AlertTriangle className="h-4 w-4 text-muted-foreground" />, accentClass: "border-l-4 border-l-muted" },
                     ].map((card) => (
                         <Card key={card.label} className={card.accentClass}>
                             <CardHeader className="pb-2">
@@ -892,9 +940,9 @@ export default function SalesAnalyticsPage() {
                                 ) : (
                                     <>
                                         <p className="text-sm font-medium leading-snug">
-                                            {peakHourRecommendation || `Promo jam ${quietestHour} untuk menaikkan volume di slot sepi.`}
+                                            {peakHourRecommendation || `Run promos at ${quietestHour} to increase low-demand slot volume.`}
                                         </p>
-                                        <p className="mt-1 text-xs text-muted-foreground">Jam sibuk: {busiestHour} · Jam sepi: {quietestHour}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">Busiest hour: {busiestHour} · Quiet hour: {quietestHour}</p>
                                     </>
                                 )}
                             </CardContent>
@@ -903,22 +951,22 @@ export default function SalesAnalyticsPage() {
                 </div>
             </section>
 
-            {/* ── SECTION 7 — JADWAL BERMASALAH ────────────────────────── */}
+            {/* ── SECTION 7 — PROBLEMATIC SCHEDULES ───────────────────── */}
             {sortedSchedules.length > 0 && (
                 <>
                     <Separator />
                     <section className="space-y-4 text-foreground">
                         <div>
-                            <h2 className="text-base font-semibold">Jadwal Bermasalah</h2>
+                            <h2 className="text-base font-semibold">Problematic Schedules</h2>
                             <p className="text-xs text-muted-foreground">
-                                {cancelledShows} dibatalkan · {delayedShows} ditunda · rata-rata penundaan {Math.round(avgDelay)} menit.
+                                {cancelledShows} cancelled · {delayedShows} delayed · average delay {Math.round(avgDelay)} minutes.
                             </p>
                         </div>
                         <div className="grid gap-4 md:grid-cols-3">
                             {[
-                                { label: "Jadwal Batal", value: `${cancelledShows}`, sub: "jadwal batal", icon: <AlertTriangle className="h-4 w-4 text-red-500" />, cls: "border-l-4 border-l-red-500" },
-                                { label: "Jadwal Tunda", value: `${delayedShows}`, sub: "jadwal tertunda", icon: <Clock className="h-4 w-4 text-amber-500" />, cls: "border-l-4 border-l-amber-500" },
-                                { label: "Rata-rata Penundaan", value: `${Math.round(avgDelay)} mnt`, sub: "per jadwal bermasalah", icon: <Clock4 className="h-4 w-4 text-muted-foreground" />, cls: "" },
+                                { label: "Cancelled Schedules", value: `${cancelledShows}`, sub: "cancelled schedules", icon: <AlertTriangle className="h-4 w-4 text-red-500" />, cls: "border-l-4 border-l-red-500" },
+                                { label: "Delayed Schedules", value: `${delayedShows}`, sub: "delayed schedules", icon: <Clock className="h-4 w-4 text-amber-500" />, cls: "border-l-4 border-l-amber-500" },
+                                { label: "Average Delay", value: `${Math.round(avgDelay)} min`, sub: "per problematic schedule", icon: <Clock4 className="h-4 w-4 text-muted-foreground" />, cls: "" },
                             ].map((c) => (
                                 <Card key={c.label} className={c.cls}>
                                     <CardHeader className="pb-2">
@@ -936,18 +984,18 @@ export default function SalesAnalyticsPage() {
                         </div>
                         <Card>
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium">Daftar Jadwal Bermasalah</CardTitle>
-                                <CardDescription>{sortedSchedules.length} jadwal terdeteksi.</CardDescription>
+                                <CardTitle className="text-sm font-medium">Daftar Problematic Schedules</CardTitle>
+                                <CardDescription>{sortedSchedules.length} schedules detected.</CardDescription>
                             </CardHeader>
                             <CardContent>
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Film</TableHead>
-                                            <TableHead>Bioskop</TableHead>
-                                            <TableHead>Jadwal Awal</TableHead>
+                                            <TableHead>Cinema</TableHead>
+                                            <TableHead>Original Schedule</TableHead>
                                             <TableHead>Status</TableHead>
-                                            <TableHead className="text-right">Ket.</TableHead>
+                                            <TableHead className="text-right">Note</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -965,7 +1013,7 @@ export default function SalesAnalyticsPage() {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="text-right text-sm">
-                                                    {s.status.toLowerCase() === "delayed" ? `${s.delayMinutes} mnt` : s.status.toLowerCase() === "cancelled" ? "Dibatalkan" : "—"}
+                                                    {s.status.toLowerCase() === "delayed" ? `${s.delayMinutes} min` : s.status.toLowerCase() === "cancelled" ? "Cancelled" : "—"}
                                                 </TableCell>
                                             </TableRow>
                                         ))}

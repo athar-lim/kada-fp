@@ -1,8 +1,7 @@
 "use client";
 
-import { Fragment } from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { Fragment, useEffect, useMemo, useState, type ComponentType } from "react";
 import { useParams, usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -106,6 +105,10 @@ type StudioMovieBreakdownRow = {
   ticketsSold: number;
   totalSchedules: number;
   occupancy: number;
+};
+
+type OccupancyBreakdownItem = OccupancyResponse["breakdown"][number] & {
+  avg_occupancy?: number;
 };
 
 const formatCurrency = (value: number) =>
@@ -372,6 +375,7 @@ export default function CityDetailPage() {
   const occupancyChartData = useMemo(
     () =>
       data.occupancy?.breakdown.map((item) => {
+        const occupancyItem = item as OccupancyBreakdownItem;
         const parts = item.time_group.split(" ");
         let label = item.time_group;
         if (parts.length === 2) {
@@ -382,7 +386,9 @@ export default function CityDetailPage() {
         }
         return {
           label,
-          occupancy: Number((item.occupancy ?? (item as any).avg_occupancy ?? 0).toFixed(2)),
+          occupancy: Number(
+            (occupancyItem.occupancy ?? occupancyItem.avg_occupancy ?? 0).toFixed(2)
+          ),
         };
       }) ?? [],
     [data.occupancy]

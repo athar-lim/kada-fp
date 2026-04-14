@@ -1,4 +1,4 @@
-"use client";
+import { mapDashboardNotification } from "@/lib/notification-mapper";
 
 const RAW_BASE_URL = process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL;
 const API_BASE_URL = RAW_BASE_URL
@@ -31,6 +31,8 @@ export type SummaryResponse = {
     revenue: number;
     occupancy: number;
     total_transactions: number;
+    active_cinemas: number;
+    available_cinemas: number;
     cinema_aktif: number;
     cinema_tersedia: number;
     growth?: {
@@ -305,11 +307,31 @@ function buildQueryString(query?: Record<string, string | undefined>) {
   return params.toString();
 }
 
+type FetchCacheEntry = {
+  expiresAt: number;
+  payload: unknown;
+};
+
+const responseCache = new Map<string, FetchCacheEntry>();
+const inflightRequests = new Map<string, Promise<unknown>>();
+
+function shouldLogApiTelemetry() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("debug_api") === "1";
+  } catch {
+    return false;
+  }
+}
+
 async function fetchJson<T>(
   path: string,
   query?: Record<string, string | undefined>,
   options?: {
     unwrapEnvelope?: boolean;
+    cacheTtlMs?: number;
+    dedupe?: boolean;
+    telemetryLabel?: string;
   }
 ): Promise<T> {
   const queryString = buildQueryString(query);
@@ -326,48 +348,105 @@ async function fetchJson<T>(
     }
   }
 
-  const response = await fetch(url, {
-    headers,
-    cache: "no-store",
-  });
+  const cacheTtlMs = options?.cacheTtlMs ?? 0;
+  const shouldDedupe = options?.dedupe ?? true;
+  const cacheKey = `${url}|${headers["Authorization"] ?? "anonymous"}`;
+  const now = Date.now();
 
-  if (response.status === 401) {
-    if (typeof window !== "undefined") {
-      // Clear invalid token
-      localStorage.removeItem("cinetrack_token");
-      localStorage.removeItem("cinetrack_user");
-      // Redirect to login
-      window.location.href = "/login";
+  if (cacheTtlMs > 0) {
+    const cached = responseCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      if (shouldLogApiTelemetry()) {
+        console.debug("[api] cache_hit", options?.telemetryLabel ?? path, {
+          ttl_ms_remaining: Math.max(0, cached.expiresAt - now),
+        });
+      }
+      return cached.payload as T;
     }
-    throw new Error(`Unauthorized (401) - Please log in`);
   }
 
-  if (!response.ok) {
-    throw new Error(`Request failed for ${path} (${response.status})`);
+  if (shouldDedupe) {
+    const inflight = inflightRequests.get(cacheKey);
+    if (inflight) {
+      if (shouldLogApiTelemetry()) {
+        console.debug("[api] dedupe_hit", options?.telemetryLabel ?? path);
+      }
+      return inflight as Promise<T>;
+    }
   }
 
-  const payload = (await response.json()) as T | ApiEnvelope<T>;
-  const shouldUnwrapEnvelope = options?.unwrapEnvelope ?? true;
+  const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const requestPromise = (async () => {
+    const response = await fetch(url, {
+      headers,
+      cache: "default",
+    });
 
-  if (!shouldUnwrapEnvelope) {
-    return payload as T;
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("cinetrack_token");
+        localStorage.removeItem("cinetrack_user");
+        window.location.href = "/login";
+      }
+      throw new Error(`Unauthorized (401) - Please log in`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Request failed for ${path} (${response.status})`);
+    }
+
+    const payload = (await response.json()) as T | ApiEnvelope<T>;
+    const shouldUnwrapEnvelope = options?.unwrapEnvelope ?? true;
+    let parsed: T;
+
+    if (!shouldUnwrapEnvelope) {
+      parsed = payload as T;
+    } else if (
+      payload &&
+      typeof payload === "object" &&
+      "data" in payload &&
+      !Array.isArray(payload)
+    ) {
+      parsed = (payload as ApiEnvelope<T>).data;
+    } else {
+      parsed = payload as T;
+    }
+
+    if (cacheTtlMs > 0) {
+      responseCache.set(cacheKey, {
+        payload: parsed,
+        expiresAt: Date.now() + cacheTtlMs,
+      });
+    }
+
+    if (shouldLogApiTelemetry()) {
+      const durationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt;
+      console.debug("[api] network_ok", options?.telemetryLabel ?? path, {
+        duration_ms: Math.round(durationMs),
+      });
+    }
+
+    return parsed;
+  })();
+
+  if (shouldDedupe) {
+    inflightRequests.set(cacheKey, requestPromise);
   }
 
-  if (
-    payload &&
-    typeof payload === "object" &&
-    "data" in payload &&
-    !Array.isArray(payload)
-  ) {
-    return (payload as ApiEnvelope<T>).data;
+  try {
+    return await requestPromise;
+  } finally {
+    if (shouldDedupe) {
+      inflightRequests.delete(cacheKey);
+    }
   }
-
-  return payload as T;
 }
 
 export function getDashboardSummary(query?: DashboardQuery) {
   return fetchJson<ApiEnvelope<SummaryApiData>>("/stats/summary", query, {
     unwrapEnvelope: false,
+    cacheTtlMs: 10_000,
+    telemetryLabel: "stats_summary",
   }).then((payload) => ({
     data: {
       total_tickets: payload.data.total_tickets,
@@ -375,6 +454,8 @@ export function getDashboardSummary(query?: DashboardQuery) {
       revenue: payload.data.revenue,
       occupancy: payload.data.avg_occupancy ?? payload.data.occupancy ?? 0,
       total_transactions: payload.data.total_transactions,
+      active_cinemas: payload.data.cinema_aktif,
+      available_cinemas: payload.data.cinema_tersedia,
       cinema_aktif: payload.data.cinema_aktif,
       cinema_tersedia: payload.data.cinema_tersedia,
       growth: payload.data.growth,
@@ -392,19 +473,31 @@ export function getDashboardSummary(query?: DashboardQuery) {
 }
 
 export function getCinemaBreakdown(query?: DashboardQuery) {
-  return fetchJson<CinemaBreakdownResponse>("/cinemas", query);
+  return fetchJson<CinemaBreakdownResponse>("/cinemas", query, {
+    cacheTtlMs: 120_000,
+    telemetryLabel: "cinema_directory",
+  });
 }
 
 export function getCinemaPerformanceBreakdown(query?: DashboardQuery) {
-  return fetchJson<CinemaBreakdownResponse>("/stats/cinema", query);
+  return fetchJson<CinemaBreakdownResponse>("/stats/cinema", query, {
+    cacheTtlMs: 15_000,
+    telemetryLabel: "stats_cinema",
+  });
 }
 
 export function getTrendStats(query?: DashboardQuery) {
-  return fetchJson<TrendsResponse>("/stats/trends", query);
+  return fetchJson<TrendsResponse>("/stats/trends", query, {
+    cacheTtlMs: 15_000,
+    telemetryLabel: "stats_trends",
+  });
 }
 
 export function getOccupancyStats(query?: DashboardQuery) {
-  return fetchJson<OccupancyApiData>("/stats/occupancy", query).then((payload) => ({
+  return fetchJson<OccupancyApiData>("/stats/occupancy", query, {
+    cacheTtlMs: 10_000,
+    telemetryLabel: "stats_occupancy",
+  }).then((payload) => ({
     summary: {
       ...payload.summary,
       occupancy: payload.summary.occupancy ?? payload.summary.avg_occupancy ?? 0,
@@ -419,14 +512,24 @@ export function getOccupancyStats(query?: DashboardQuery) {
 }
 
 export function getMovieStats(query?: DashboardQuery) {
-  return fetchJson<MovieStatsResponse>("/stats/movie", query);
+  return fetchJson<MovieStatsResponse>("/stats/movie", query, {
+    cacheTtlMs: 20_000,
+    telemetryLabel: "stats_movie",
+  });
 }
 
 export function getTopMovies(query?: DashboardQuery) {
-  return fetchJson<TopMovie[]>("/movies/rankings", {
-    ...query,
-    top10: "true",
-  });
+  return fetchJson<TopMovie[]>(
+    "/movies/rankings",
+    {
+      ...query,
+      top10: "true",
+    },
+    {
+      cacheTtlMs: 15_000,
+      telemetryLabel: "movies_rankings",
+    }
+  );
 }
 
 export async function getMoviesCatalog() {
@@ -510,11 +613,17 @@ export function getScheduleDetail(scheduleId: string) {
 }
 
 export function getSystemHealth() {
-  return fetchJson<HealthResponse>("/system/health");
+  return fetchJson<HealthResponse>("/system/health", undefined, {
+    cacheTtlMs: 8_000,
+    telemetryLabel: "system_health",
+  });
 }
 
 export function getLatestAiInsight(query?: DashboardQuery) {
-  return fetchJson<AiInsightResponse>("/ai/insights/latest", query);
+  return fetchJson<AiInsightResponse>("/ai/insights/latest", query, {
+    cacheTtlMs: 45_000,
+    telemetryLabel: "ai_insight_latest",
+  });
 }
 
 export function getLatestAiInsights(
@@ -784,38 +893,38 @@ export type FilmsDashboardOperationalRisk = {
   }>;
 };
 
-// Fungsi ini mengambil ringkasan utama halaman film dari endpoint dashboard resmi.
-// Data yang dikembalikan sudah sesuai filter kota, bioskop, studio, dan tanggal.
+// Fetches the main films overview from the official dashboard endpoint.
+// Returned data already respects city, cinema, studio, and date filters.
 export function getFilmsDashboardOverview(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardOverview>("/dashboard/films/overview", query);
 }
 
-// Fungsi ini mengambil ranking film berdasarkan tiket, revenue, dan blockbuster score.
-// Hasilnya dipakai untuk chart penjualan film dan kartu top performer.
+// Fetches film ranking by tickets, revenue, and blockbuster score.
+// Used by sales charts and top performer cards.
 export function getFilmsDashboardPerformance(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardPerformance>("/dashboard/films/performance", query);
 }
 
-// Fungsi ini mengambil performa jadwal, repeat show, dan audience density film.
-// Endpoint ini menjadi sumber utama untuk section schedule & efficiency.
+// Fetches schedule performance, repeat shows, and audience density.
+// This endpoint powers the schedule and efficiency sections.
 export function getFilmsDashboardSchedules(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardSchedules>("/dashboard/films/schedules", query);
 }
 
-// Fungsi ini mengambil breakdown occupancy per film, hari, dan studio.
-// Nilai mentahnya tetap dibiarkan apa adanya agar normalisasi dilakukan dekat UI.
+// Fetches occupancy breakdown by movie, day, and studio.
+// Raw values are intentionally preserved so normalization stays close to the UI.
 export function getFilmsDashboardOccupancy(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardOccupancy>("/dashboard/films/occupancy", query);
 }
 
-// Fungsi ini mengambil distribusi genre dan format studio dari dashboard film.
-// Data ini dipakai untuk komposisi mix penonton dan penjadwalan screen.
+// Fetches genre and studio-format distribution for films dashboard.
+// Used for audience mix and screen scheduling composition.
 export function getFilmsDashboardDistribution(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardDistribution>("/dashboard/films/distribution", query);
 }
 
-// Fungsi ini mengambil ringkasan risiko operasional film seperti cancel dan delay.
-// Data ini dipakai untuk kartu problematic shows dan tabel schedule bermasalah.
+// Fetches film operational risk summary such as cancellations and delays.
+// Used by problematic-show cards and issue schedule tables.
 export function getFilmsDashboardOperationalRisk(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardOperationalRisk>("/dashboard/films/operational-risk", query);
 }
@@ -1004,7 +1113,7 @@ export function getSalesDashboardOperationalRisk(query?: DashboardQuery) {
   return fetchJson<SalesDashboardOperationalRisk>("/dashboard/sales/operational-risk", query);
 }
 
-/** Satu panggilan menggantikan enam request terpisah untuk halaman Films (perlu token admin). */
+/** One call replaces six separate requests for the Films page (requires admin token). */
 export type FilmsAnalyticsBundlePayload = {
   overview: FilmsDashboardOverview;
   performance: FilmsDashboardPerformance;
@@ -1014,7 +1123,7 @@ export type FilmsAnalyticsBundlePayload = {
   operational_risk: FilmsDashboardOperationalRisk;
 };
 
-/** Satu panggilan menggantikan delapan request terpisah untuk halaman Sales (perlu token admin). */
+/** One call replaces eight separate requests for the Sales page (requires admin token). */
 export type SalesAnalyticsBundlePayload = {
   overview: SalesDashboardOverview;
   revenue_by_cinema: SalesDashboardRevenueByCinema;
@@ -1027,18 +1136,24 @@ export type SalesAnalyticsBundlePayload = {
 };
 
 export function getFilmsAnalyticsBundle(query?: DashboardQuery & { top_n?: string }) {
-  return fetchJson<FilmsAnalyticsBundlePayload>("/dashboard/films/analytics", query);
+  return fetchJson<FilmsAnalyticsBundlePayload>("/dashboard/films/analytics", query, {
+    cacheTtlMs: 20_000,
+    telemetryLabel: "dashboard_films_analytics",
+  });
 }
 
 export function getSalesAnalyticsBundle(
   query?: DashboardQuery & { cinema_top_n?: string; movie_top_n?: string }
 ) {
-  return fetchJson<SalesAnalyticsBundlePayload>("/dashboard/sales/analytics", query);
+  return fetchJson<SalesAnalyticsBundlePayload>("/dashboard/sales/analytics", query, {
+    cacheTtlMs: 20_000,
+    telemetryLabel: "dashboard_sales_analytics",
+  });
 }
 
 export function getCities() {
   return fetchJson<string[] | Array<{ city?: string; name?: string }>>("/cities", undefined, { unwrapEnvelope: false }).then(payload => {
-    // API sometimes returns an envelope, sometimes not. Let's handle it safely.
+    // API can return either an envelope or a direct array.
     let data;
     if (payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as any).data)) {
       data = (payload as any).data;
@@ -1068,7 +1183,11 @@ export type DashboardNotification = {
 };
 
 export function getDashboardNotifications() {
-  return fetchJson<DashboardNotification[]>("/dashboard/notifications", undefined, { unwrapEnvelope: false })
+  return fetchJson<DashboardNotification[]>("/dashboard/notifications", undefined, {
+    unwrapEnvelope: false,
+    cacheTtlMs: 15_000,
+    telemetryLabel: "dashboard_notifications",
+  })
     .then(payload => {
       let data;
       if (payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as any).data)) {
@@ -1078,7 +1197,7 @@ export function getDashboardNotifications() {
       } else {
         data = [];
       }
-      return data as DashboardNotification[];
+      return (data as any[]).map((item, index) => mapDashboardNotification(item, index) as DashboardNotification);
     })
     .catch(err => {
       console.warn("API /dashboard/notifications returned an error:", err.message);
@@ -1098,7 +1217,7 @@ export type AuthResponse = {
 };
 
 export async function loginAdmin(email: string, password: string): Promise<AuthResponse> {
-  // Can't use API_BASE_URL because it's not exported, but it's local to the file so we can string interpolate it.
+  // Keep login URL explicit because this helper bypasses fetchJson().
   const url = `${process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL ?? "https://capstone-project-api-cinetrack.vercel.app/api/v1"}/auth/login`;
   const response = await fetch(url, {
     method: "POST",

@@ -1,14 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format, subDays } from "date-fns";
-import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import {
   Activity,
-  AlertTriangle,
-  Bell,
-  BellOff,
-  ChevronRight,
   DollarSign,
   Gauge,
   MapPinned,
@@ -29,7 +25,6 @@ import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -56,8 +51,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getCinemaPerformanceBreakdown,
   getDashboardSummary,
+  getFilmsAnalyticsBundle,
   getLatestAiInsight,
   getOccupancyStats,
+  getSalesAnalyticsBundle,
   getSystemHealth,
   getTopMovies,
   type AiInsightResponse,
@@ -136,7 +133,7 @@ function getErrorMessage(reason: unknown, fallback: string) {
 }
 
 function formatPeriod(periodString?: string) {
-  if (!periodString) return "Semua tanggal";
+  if (!periodString) return "All dates";
 
   const [startDate, endDate] = periodString.split(" to ");
   if (!startDate || !endDate) return periodString;
@@ -147,8 +144,8 @@ function formatPeriod(periodString?: string) {
     year: "numeric",
   };
 
-  const start = new Date(startDate).toLocaleDateString("id-ID", options);
-  const end = new Date(endDate).toLocaleDateString("id-ID", options);
+  const start = new Date(startDate).toLocaleDateString("en-US", options);
+  const end = new Date(endDate).toLocaleDateString("en-US", options);
 
   return `${start} - ${end}`;
 }
@@ -175,6 +172,7 @@ function MetricCardSkeleton() {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const {
     selectedCity,
     selectedCinema,
@@ -185,8 +183,6 @@ export default function DashboardPage() {
     hrefWithFilters,
     apiQuery: query,
   } = useDashboardUrlFilters();
-
-  const [filtersLoading, setFiltersLoading] = useState(true);
 
   const [data, setData] = useState<DashboardPayload>({
     summary: null,
@@ -199,27 +195,41 @@ export default function DashboardPage() {
   });
   const [errors, setErrors] = useState<DashboardErrors>({});
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [multiCityOccupancyData, setMultiCityOccupancyData] = useState<MultiCityOccupancyPoint[]>([]);
   const [multiCityOccupancyKeys, setMultiCityOccupancyKeys] = useState<string[]>([]);
+  const [enableAllCitiesOccupancy, setEnableAllCitiesOccupancy] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
 
   useEffect(() => {
-    if (dateRange?.from) {
-      setFiltersLoading(false);
-      return;
-    }
-    let cancelled = false;
-    getSystemHealth().then((h) => {
-      if (cancelled) return;
-      if (h.last_data_in) {
-        const end = new Date(h.last_data_in);
-        setDateRange({ from: subDays(end, 6), to: end });
-      }
-      setFiltersLoading(false);
+    const filmsHref = hrefWithFilters("/dashboard/films");
+    const salesHref = hrefWithFilters("/dashboard/sales");
+    router.prefetch(filmsHref);
+    router.prefetch(salesHref);
+  }, [hrefWithFilters, router]);
+
+  useEffect(() => {
+    if (!hasLoadedOnceRef.current) return;
+    if (typeof window === "undefined") return;
+
+    const scheduleIdle = window.requestIdleCallback ?? ((cb: IdleRequestCallback) => window.setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 0 } as IdleDeadline), 250));
+    const cancelIdle = window.cancelIdleCallback ?? window.clearTimeout;
+
+    const idleId = scheduleIdle(() => {
+      void Promise.allSettled([
+        getFilmsAnalyticsBundle({ ...query, top_n: "20" }),
+        getSalesAnalyticsBundle({
+          ...query,
+          cinema_top_n: "10",
+          movie_top_n: "7",
+        }),
+      ]);
     });
+
     return () => {
-      cancelled = true;
+      cancelIdle(idleId);
     };
-  }, [dateRange?.from, setDateRange]);
+  }, [query]);
 
   useEffect(() => {
     if (selectedCinema === "all" || !data.cinemas) return;
@@ -232,11 +242,14 @@ export default function DashboardPage() {
   }, [data.cinemas, selectedCinema, selectedCity, setCinema]);
 
   useEffect(() => {
-    if (filtersLoading) return;
     let cancelled = false;
 
     const loadDashboard = async () => {
-      setLoading(true);
+      if (hasLoadedOnceRef.current) {
+        setIsRefreshing(true);
+      } else {
+        setLoading(true);
+      }
       setErrors({});
 
       const results = await Promise.allSettled([
@@ -249,6 +262,12 @@ export default function DashboardPage() {
       ]);
 
       if (cancelled) return;
+      const healthResult = results[4].status === "fulfilled" ? results[4].value : null;
+
+      if (!dateRange?.from && healthResult?.last_data_in) {
+        const end = new Date(healthResult.last_data_in);
+        setDateRange({ from: subDays(end, 6), to: end });
+      }
 
       setData((prev) => {
         const newInsight = results[5].status === "fulfilled" ? results[5].value : null;
@@ -256,11 +275,16 @@ export default function DashboardPage() {
 
         let updatedHistory = currentHistory;
         if (newInsight && newInsight.period?.label) {
-          const exists = currentHistory.some(h => h.period?.label === newInsight.period.label);
+          const exists = currentHistory.some(
+            (h) => h.period?.label === newInsight.period.label
+          );
           if (!exists) {
             updatedHistory = [newInsight, ...currentHistory].slice(0, 10);
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('cinetrack_insight_history', JSON.stringify(updatedHistory));
+            if (typeof window !== "undefined") {
+              localStorage.setItem(
+                "cinetrack_insight_history",
+                JSON.stringify(updatedHistory)
+              );
             }
           }
         }
@@ -271,7 +295,7 @@ export default function DashboardPage() {
           cinemas: results[1].status === "fulfilled" ? results[1].value : null,
           occupancy: results[2].status === "fulfilled" ? results[2].value : null,
           topMovies: results[3].status === "fulfilled" ? results[3].value : null,
-          health: results[4].status === "fulfilled" ? results[4].value : null,
+          health: healthResult,
           insight: newInsight,
           insightHistory: updatedHistory,
         };
@@ -304,23 +328,28 @@ export default function DashboardPage() {
             : undefined,
       });
 
+      if (!hasLoadedOnceRef.current) {
+        hasLoadedOnceRef.current = true;
+      }
       setLoading(false);
+      setIsRefreshing(false);
     };
 
     loadDashboard();
 
     return () => {
       cancelled = true;
+      setIsRefreshing(false);
     };
-  }, [query, filtersLoading]);
+  }, [dateRange?.from, query, setDateRange]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('cinetrack_insight_history');
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("cinetrack_insight_history");
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          setData(prev => ({ ...prev, insightHistory: parsed }));
+          setData((prev) => ({ ...prev, insightHistory: parsed }));
         } catch (e) {
           console.error("Failed to parse insight history", e);
         }
@@ -329,12 +358,12 @@ export default function DashboardPage() {
   }, []);
 
   const cityOptions = useMemo(() => {
-    if (!data.cinemas) return [{ id: "all", name: "All City" }];
+    if (!data.cinemas) return [{ id: "all", name: "All Cities" }];
 
     const uniqueCities = [...new Set(data.cinemas.breakdown.map((item) => item.city))].sort();
 
     return [
-      { id: "all", name: "All City" },
+      { id: "all", name: "All Cities" },
       ...uniqueCities.map((city) => ({ id: city, name: city })),
     ];
   }, [data.cinemas]);
@@ -430,13 +459,28 @@ export default function DashboardPage() {
     let cancelled = false;
 
     const loadMultiCityOccupancy = async () => {
-      if (!data.cinemas || selectedCity !== "all" || selectedCinema !== "all") {
+      if (
+        !data.cinemas ||
+        selectedCity !== "all" ||
+        selectedCinema !== "all" ||
+        !enableAllCitiesOccupancy
+      ) {
         setMultiCityOccupancyData([]);
         setMultiCityOccupancyKeys([]);
         return;
       }
 
-      const uniqueCities = [...new Set(data.cinemas.breakdown.map((item) => item.city))].sort();
+      // Temporary mitigation: cap requests to top 5 cities by ticket volume.
+      // Proper fix should be a dedicated backend endpoint for all-city occupancy in one request.
+      const topCities = [...data.cinemas.breakdown]
+        .reduce((acc, item) => {
+          acc.set(item.city, (acc.get(item.city) ?? 0) + item.metrics.total_tickets);
+          return acc;
+        }, new Map<string, number>());
+      const uniqueCities = [...topCities.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([city]) => city);
       if (uniqueCities.length === 0) {
         setMultiCityOccupancyData([]);
         setMultiCityOccupancyKeys([]);
@@ -481,7 +525,14 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [data.cinemas, query.end_date, query.start_date, selectedCity, selectedCinema]);
+  }, [
+    data.cinemas,
+    enableAllCitiesOccupancy,
+    query.end_date,
+    query.start_date,
+    selectedCity,
+    selectedCinema,
+  ]);
 
   const topMovies = data.topMovies?.slice(0, 10) ?? [];
   const hasAnyError = Object.values(errors).some(Boolean);
@@ -521,9 +572,14 @@ export default function DashboardPage() {
           {loading ? (
             <Skeleton className="mt-2 h-3 w-40" />
           ) : (
-            <p className="text-xs text-muted-foreground">
-              {`Data from ${formatPeriod(data.summary?.meta.period)}`}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-muted-foreground">
+                {`Data from ${formatPeriod(data.summary?.meta.period)}`}
+              </p>
+              {isRefreshing ? (
+                <span className="text-[11px] text-muted-foreground">Refreshing...</span>
+              ) : null}
+            </div>
           )}
         </div>
 
@@ -567,7 +623,7 @@ export default function DashboardPage() {
       {hasAnyError ? (
         <Card className="border-amber-300 bg-amber-50">
           <CardContent className="space-y-1 py-4 text-sm text-amber-700">
-            <p>Beberapa data dashboard belum bisa dimuat dari API saat ini.</p>
+            <p>Some dashboard data could not be loaded from the API right now.</p>
             {errors.summary ? <p>Summary: {errors.summary}</p> : null}
             {errors.cinemas ? <p>Cinemas: {errors.cinemas}</p> : null}
             {errors.topMovies ? <p>Top movies: {errors.topMovies}</p> : null}
@@ -754,7 +810,7 @@ export default function DashboardPage() {
                   <p className="text-sm text-muted-foreground">
                     {data.insight.cards?.summary ??
                       data.insight.analysis?.description ??
-                      "Insight terbaru belum memiliki ringkasan."}
+                      "This insight does not have a summary yet."}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -778,7 +834,7 @@ export default function DashboardPage() {
                 <p className="mt-2 text-sm text-foreground">
                   {data.insight.cards?.recommendation ??
                     data.insight.analysis?.recommendation ??
-                    "Belum ada rekomendasi yang tersedia."}
+                    "No recommendation is available yet."}
                 </p>
               </div>
 
@@ -805,7 +861,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-              Insight belum tersedia
+              Insight is not available yet
             </div>
           )}
         </CardContent>
@@ -840,10 +896,10 @@ export default function DashboardPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-center font-semibold">Peringkat</TableHead>
-                  <TableHead className="text-center font-semibold">Judul</TableHead>
+                  <TableHead className="text-center font-semibold">Rank</TableHead>
+                  <TableHead className="text-center font-semibold">Title</TableHead>
                   <TableHead className="text-center font-semibold">Genre</TableHead>
-                  <TableHead className="text-center font-semibold">Tiket</TableHead>
+                  <TableHead className="text-center font-semibold">Tickets</TableHead>
                   <TableHead className="text-center font-semibold">Revenue</TableHead>
                 </TableRow>
               </TableHeader>
@@ -855,7 +911,7 @@ export default function DashboardPage() {
                       <TableCell className="font-medium">{movie.title}</TableCell>
                       <TableCell className="text-center">{movie.genre[0] ?? "-"}</TableCell>
                       <TableCell className="text-center">
-                        {movie.tickets_sold.toLocaleString("id-ID")}
+                        {movie.tickets_sold.toLocaleString("en-US")}
                       </TableCell>
                       <TableCell className="text-center text-muted-foreground">
                         {formatCompactCurrency(movie.revenue)}
@@ -865,7 +921,7 @@ export default function DashboardPage() {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      {loading ? "Loading top movies..." : "Data film terlaris belum tersedia."}
+                      {loading ? "Loading top movies..." : "Top movie data is not available yet."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -878,7 +934,17 @@ export default function DashboardPage() {
           <Card>
             <CardHeader>
               <CardTitle>Average Studio Occupancy</CardTitle>
-              <p className="text-xs text-gray-500">Average occupancy rates across different cities</p>
+              <p className="text-xs text-gray-500">Average occupancy rates across cities</p>
+              {selectedCity === "all" && selectedCinema === "all" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-fit"
+                  onClick={() => setEnableAllCitiesOccupancy((prev) => !prev)}
+                >
+                  {enableAllCitiesOccupancy ? "Hide all-city comparison" : "Compare top 5 cities"}
+                </Button>
+              ) : null}
             </CardHeader>
             <CardContent className="h-[320px] pr-2">
               {occupancyChartData.length > 0 ? (
@@ -903,9 +969,12 @@ export default function DashboardPage() {
                         backgroundColor: "hsl(var(--card))",
                         borderColor: "hsl(var(--border))",
                       }}
-                      formatter={(value, name) => [`${value}%`, name === "occupancy" ? "Okupansi" : name]}
+                      formatter={(value, name) => [`${value}%`, name === "occupancy" ? "Occupancy" : name]}
                     />
-                    {selectedCity === "all" && selectedCinema === "all" && multiCityOccupancyKeys.length > 0 ? (
+                    {selectedCity === "all" &&
+                    selectedCinema === "all" &&
+                    enableAllCitiesOccupancy &&
+                    multiCityOccupancyKeys.length > 0 ? (
                       <>
                         <Legend
                           wrapperStyle={{
@@ -941,7 +1010,7 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               ) : (
                 <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 text-sm text-muted-foreground">
-                  {loading ? "Loading occupancy..." : "Data okupansi belum tersedia."}
+                  {loading ? "Loading occupancy..." : "Occupancy data is not available yet."}
                 </div>
               )}
             </CardContent>
@@ -968,7 +1037,7 @@ export default function DashboardPage() {
                   <span>Transactions (Last 60 mins)</span>
                 </div>
                 <span className="font-medium">
-                  {data.health ? data.health.tickets_last_hour.toLocaleString("id-ID") : "--"}
+                  {data.health ? data.health.tickets_last_hour.toLocaleString("en-US") : "--"}
                 </span>
               </div>
 
