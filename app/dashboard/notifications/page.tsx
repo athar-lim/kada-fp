@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -12,7 +12,6 @@ import {
   LightbulbIcon,
   Server,
   Sparkles,
-  Trash2,
   TrendingDown,
   TrendingUp,
   Zap,
@@ -23,7 +22,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
-import { getDashboardNotifications, type DashboardNotification, type AiInsightResponse } from "@/lib/cinetrack-api";
+import {
+  getAiInsightsHistory,
+  getDashboardNotifications,
+  type DashboardNotification,
+  type AiInsightResponse,
+} from "@/lib/cinetrack-api";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -87,30 +91,38 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     let unmounted = false;
-    getDashboardNotifications()
-      .then((data) => { if (!unmounted) { setNotifications(data); setLoading(false); } })
-      .catch((err) => { console.error("Failed to load notifications", err); if (!unmounted) setLoading(false); });
 
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("cinetrack_insight_history");
-      if (saved) {
-        try { setAiInsights(JSON.parse(saved)); } catch (e) { console.error(e); }
-      }
-    }
+    Promise.allSettled([getDashboardNotifications(), getAiInsightsHistory()])
+      .then((results) => {
+        if (unmounted) return;
+
+        if (results[0].status === "fulfilled") {
+          setNotifications(results[0].value);
+        } else {
+          console.error("Failed to load notifications", results[0].reason);
+        }
+
+        if (results[1].status === "fulfilled") {
+          const sortedInsights = [...results[1].value].sort((a, b) => {
+            const aTime = a.generated_at ? new Date(a.generated_at).getTime() : 0;
+            const bTime = b.generated_at ? new Date(b.generated_at).getTime() : 0;
+            return bTime - aTime;
+          });
+          setAiInsights(sortedInsights);
+        } else {
+          console.error("Failed to load AI insight history", results[1].reason);
+        }
+
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load notifications page data", err);
+        if (!unmounted) {
+          setLoading(false);
+        }
+      });
+
     return () => { unmounted = true; };
-  }, []);
-
-  const clearAllInsights = useCallback(() => {
-    localStorage.removeItem("cinetrack_insight_history");
-    setAiInsights([]);
-  }, []);
-
-  const deleteInsight = useCallback((index: number) => {
-    setAiInsights((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      localStorage.setItem("cinetrack_insight_history", JSON.stringify(next));
-      return next;
-    });
   }, []);
 
   const filteredNotifications = useMemo(() => {
@@ -169,7 +181,7 @@ export default function NotificationsPage() {
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Notifications &amp; Alerts</h1>
+            <h1 className="text-2xl font-bold">Notifications & AI Insights</h1>
             {totalAlerts > 0 && (
               <span className="inline-flex items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground">
                 {totalAlerts}
@@ -177,7 +189,7 @@ export default function NotificationsPage() {
             )}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Pusat notifikasi sistem dan riwayat temuan AI. Dilengkapi konteks, dampak, dan rekomendasi tindakan.
+            Riwayat insight AI dan alert operasional dalam satu halaman, lengkap dengan dampak dan rekomendasi tindakan.
           </p>
         </div>
 
@@ -407,18 +419,7 @@ export default function NotificationsPage() {
             <BrainCircuit className="h-5 w-5 text-primary" />
             <h2 className="text-base font-semibold text-primary">AI Operational Intelligence History</h2>
             <Separator className="flex-1" />
-            <span className="text-xs text-muted-foreground">{aiInsights.length} temuan tersimpan</span>
-            {aiInsights.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                onClick={clearAllInsights}
-              >
-                <Trash2 className="h-3 w-3" />
-                Hapus Semua
-              </Button>
-            )}
+            <span className="text-xs text-muted-foreground">{aiInsights.length} history tersedia</span>
           </div>
 
           {aiInsights.length > 0 ? (
@@ -432,7 +433,10 @@ export default function NotificationsPage() {
                 const recommendation = item.cards?.recommendation ?? item.analysis?.recommendation;
 
                 return (
-                  <Card key={`ai-${index}`} className="border-l-4 border-l-primary">
+                  <Card
+                    key={`ai-${item.generated_at ?? item.period?.label ?? index}`}
+                    className="border-l-4 border-l-primary"
+                  >
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-start gap-3">
@@ -454,15 +458,6 @@ export default function NotificationsPage() {
                               {impactCfg.label}
                             </Badge>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => deleteInsight(index)}
-                            title="Hapus insight ini"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
                         </div>
                       </div>
                     </CardHeader>
@@ -516,9 +511,9 @@ export default function NotificationsPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
                 <BellOff className="h-12 w-12 text-muted-foreground/20" />
-                <p className="text-sm font-medium text-muted-foreground">Belum ada riwayat AI insight tersimpan.</p>
+                <p className="text-sm font-medium text-muted-foreground">Belum ada history AI insight.</p>
                 <p className="text-xs text-muted-foreground max-w-xs">
-                  Kunjungi dasbor utama hingga AI insight dimuat. Setiap insight baru akan otomatis tersimpan di sini.
+                  Backend belum mengembalikan data history insight untuk saat ini.
                 </p>
               </CardContent>
             </Card>

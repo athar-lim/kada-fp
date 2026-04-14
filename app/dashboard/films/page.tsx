@@ -376,7 +376,7 @@ export default function FilmPerformancePage() {
                 </div>
             </div>
 
-            {/* ── AUTO INSIGHT BANNERS ─────────────────────────────────── */}
+            {/* ── AUTO INSIGHT BANNERS ───────────────────────────────────
             {insightBanners.length > 0 && (
                 <div className="grid gap-2 sm:grid-cols-2">
                     {insightBanners.map((b, i) => (
@@ -388,7 +388,7 @@ export default function FilmPerformancePage() {
                 </div>
             )}
 
-            <Separator />
+            <Separator /> */}
 
             {/* ── SECTION 1 — KPI CARDS ────────────────────────────────── */}
             <section className="space-y-4">

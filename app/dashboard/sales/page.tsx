@@ -441,7 +441,7 @@ export default function SalesAnalyticsPage() {
                 </div>
             </div>
 
-            {/* ── AUTO INSIGHT BANNERS ─────────────────────────────────── */}
+            {/* ── AUTO INSIGHT BANNERS ───────────────────────────────────
             {insightBanners.length > 0 && (
                 <div className="grid gap-2 sm:grid-cols-2">
                     {insightBanners.map((b, i) => (
@@ -453,7 +453,7 @@ export default function SalesAnalyticsPage() {
                 </div>
             )}
 
-            <Separator />
+            <Separator /> */}
 
             {/* ── SECTION 1 — RINGKASAN KPI ────────────────────────────── */}
             <section className="space-y-4 text-foreground">

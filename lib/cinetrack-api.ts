@@ -517,6 +517,66 @@ export function getLatestAiInsight(query?: DashboardQuery) {
   return fetchJson<AiInsightResponse>("/ai/insights/latest", query);
 }
 
+export function getLatestAiInsights(
+  query?: DashboardQuery & {
+    limit?: string;
+  }
+) {
+  return fetchJson<AiInsightResponse[]>("/ai/insights/latest", { ...query, all: "true" } as Record<string, string | undefined>, {
+    unwrapEnvelope: false,
+  })
+    .then((payload) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "data" in payload &&
+        Array.isArray((payload as { data?: unknown }).data)
+      ) {
+        return (payload as { data: AiInsightResponse[] }).data;
+      }
+
+      return Array.isArray(payload) ? payload : [];
+    })
+    .catch((err) => {
+      console.warn("API /ai/insights/latest?all=true returned an error:", err.message);
+      return [];
+    });
+}
+
+export function getAiInsightsHistory() {
+  return fetchJson<AiInsightResponse[]>("/ai/insights/history", undefined, {
+    unwrapEnvelope: false,
+  })
+    .then((payload) => {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "data" in payload &&
+        payload.data &&
+        typeof payload.data === "object" &&
+        "items" in payload.data &&
+        Array.isArray((payload.data as { items?: unknown }).items)
+      ) {
+        return (payload.data as { items: AiInsightResponse[] }).items;
+      }
+
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "data" in payload &&
+        Array.isArray((payload as { data?: unknown }).data)
+      ) {
+        return (payload as { data: AiInsightResponse[] }).data;
+      }
+
+      return Array.isArray(payload) ? payload : [];
+    })
+    .catch((err) => {
+      console.warn("API /ai/insights/history returned an error:", err.message);
+      return [];
+    });
+}
+
 export async function getCinemaStudios(cinemaId: string) {
   const firstPage = await fetchJson<ApiEnvelope<StudioResponse[]>>("/studios", {
     cinema_id: cinemaId,
