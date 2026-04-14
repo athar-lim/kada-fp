@@ -151,7 +151,7 @@ export default function NotificationsPage() {
   const SeverityFilter = () => (
     <div className="flex flex-wrap gap-2">
       {[
-        { value: "all", label: "Semua", count: summary.total },
+        { value: "all", label: "All", count: summary.total },
         { value: "critical", label: "Kritis", dot: "bg-red-500" as const, count: summary.critical },
         { value: "warning", label: "Peringatan", dot: "bg-amber-500" as const, count: summary.warning },
         { value: "opportunity", label: "Peluang", dot: "bg-green-500" as const, count: summary.opportunity },
@@ -200,7 +200,7 @@ export default function NotificationsPage() {
         {/* Tab switcher */}
         <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/40 p-1 self-start">
           {([
-            { id: "all", label: "Semua", count: totalAlerts },
+            { id: "all", label: "All", count: totalAlerts },
             { id: "system", label: "Sistem", count: summary.total },
             { id: "ai", label: "AI Insights", count: aiInsights.length },
           ] as const).map((t) => (
@@ -236,7 +236,7 @@ export default function NotificationsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.total}</div>
-            <p className="text-xs text-muted-foreground mt-1">Notifikasi sistem aktif</p>
+            <p className="text-xs text-muted-foreground mt-1">Active system notifications</p>
             {summary.total > 0 && (
               <div className="mt-2 flex gap-1">
                 {summary.critical > 0 && <div className="h-1.5 rounded-full bg-red-500" style={{ width: `${(summary.critical / summary.total) * 100}%` }} />}
@@ -304,7 +304,7 @@ export default function NotificationsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">{aiInsights.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">Temuan AI tersimpan</p>
+            <p className="text-xs text-muted-foreground mt-1">Stored AI findings</p>
             <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
               <div className="h-full rounded-full bg-primary" style={{ width: aiInsights.length > 0 ? "100%" : "0%" }} />
             </div>
@@ -324,22 +324,22 @@ export default function NotificationsPage() {
             <Card>
               <CardContent className="py-12 flex flex-col items-center gap-3">
                 <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                <p className="text-sm text-muted-foreground">Memuat notifikasi sistem...</p>
+                <p className="text-sm text-muted-foreground">Loading system notifications...</p>
               </CardContent>
             </Card>
           ) : notifications.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
                 <CheckCircle2 className="h-12 w-12 text-green-500/40" />
-                <p className="text-sm font-medium text-muted-foreground">Tidak ada alert sistem aktif.</p>
-                <p className="text-xs text-muted-foreground">Semua operasional berjalan normal.</p>
+                <p className="text-sm font-medium text-muted-foreground">No active system alerts.</p>
+                <p className="text-xs text-muted-foreground">All operations are running normally.</p>
               </CardContent>
             </Card>
           ) : (
             <>
               {([
                 { key: "critical", title: "Isu Kritis", icon: Zap, items: groupedNotifications.critical, colorClass: "text-red-600" },
-                { key: "warning", title: "Anomali Performa", icon: AlertTriangle, items: groupedNotifications.warning, colorClass: "text-amber-600" },
+                { key: "warning", title: "Performance Anomalies", icon: AlertTriangle, items: groupedNotifications.warning, colorClass: "text-amber-600" },
                 { key: "opportunity", title: "Peluang Optimasi", icon: LightbulbIcon, items: groupedNotifications.opportunity, colorClass: "text-green-600" },
               ].map((group) => {
                 const Icon = group.icon;
@@ -382,10 +382,10 @@ export default function NotificationsPage() {
 
                               <CardContent className="grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
                                 {[
-                                  { label: "Kejadian", value: item.what },
-                                  { label: "Lokasi", value: item.where },
-                                  { label: "Dampak", value: item.impact },
-                                  { label: "Tindakan", value: item.action, highlight: true },
+                                  { label: "Event", value: item.what },
+                                  { label: "Location", value: item.where },
+                                  { label: "Impact", value: item.impact },
+                                  { label: "Action", value: item.action, highlight: true },
                                 ].map((col) => (
                                   <div key={col.label} className={col.highlight ? "rounded-xl bg-primary/5 p-3 border border-primary/10" : ""}>
                                     <p className={`text-[10px] font-bold uppercase tracking-widest ${col.highlight ? "text-primary/80" : "text-muted-foreground"}`}>
@@ -404,7 +404,7 @@ export default function NotificationsPage() {
                     ) : (
                       <Card>
                         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                          Tidak ada alert di kategori ini.
+                          No alerts in this category.
                         </CardContent>
                       </Card>
                     )}
@@ -423,7 +423,7 @@ export default function NotificationsPage() {
             <BrainCircuit className="h-5 w-5 text-primary" />
             <h2 className="text-base font-semibold text-primary">AI Operational Intelligence History</h2>
             <Separator className="flex-1" />
-            <span className="text-xs text-muted-foreground">{aiInsights.length} history tersedia</span>
+            <span className="text-xs text-muted-foreground">{aiInsights.length} history available</span>
           </div>
 
           {aiInsights.length > 0 ? (
@@ -473,7 +473,7 @@ export default function NotificationsPage() {
                       <div className="grid gap-4 lg:grid-cols-2">
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                            Analisis &amp; Temuan
+                            Analysis &amp; Findings
                           </p>
                           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                             {summary}
@@ -482,7 +482,7 @@ export default function NotificationsPage() {
                         {recommendation && (
                           <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                              Rekomendasi Tindakan
+                              Recommended Action
                             </p>
                             <p className="mt-2 text-sm font-medium text-foreground leading-relaxed">
                               {recommendation}
@@ -518,9 +518,9 @@ export default function NotificationsPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
                 <BellOff className="h-12 w-12 text-muted-foreground/20" />
-                <p className="text-sm font-medium text-muted-foreground">Belum ada history AI insight.</p>
+                <p className="text-sm font-medium text-muted-foreground">No AI insight history yet.</p>
                 <p className="text-xs text-muted-foreground max-w-xs">
-                  Backend belum mengembalikan data history insight untuk saat ini.
+                  The backend has not returned insight history data yet.
                 </p>
               </CardContent>
             </Card>

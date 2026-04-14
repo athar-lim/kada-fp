@@ -11,15 +11,7 @@ import {
   RefreshCw,
   Ticket,
 } from "lucide-react";
-import {
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import IndonesiaFranchiseMap from "@/components/maps/indonesia-franchise-map";
@@ -80,7 +72,7 @@ type DashboardErrors = Partial<Record<keyof DashboardPayload, string>>;
 
 type MultiCityOccupancyPoint = {
   label: string;
-  [city: string]: number | string | undefined;
+  occupancy: number;
 };
 
 const cityCoordinates: Record<string, [number, number]> = {
@@ -197,7 +189,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [multiCityOccupancyData, setMultiCityOccupancyData] = useState<MultiCityOccupancyPoint[]>([]);
-  const [multiCityOccupancyKeys, setMultiCityOccupancyKeys] = useState<string[]>([]);
   const [enableAllCitiesOccupancy, setEnableAllCitiesOccupancy] = useState(false);
   const hasLoadedOnceRef = useRef(false);
 
@@ -466,7 +457,6 @@ export default function DashboardPage() {
         !enableAllCitiesOccupancy
       ) {
         setMultiCityOccupancyData([]);
-        setMultiCityOccupancyKeys([]);
         return;
       }
 
@@ -483,7 +473,6 @@ export default function DashboardPage() {
         .map(([city]) => city);
       if (uniqueCities.length === 0) {
         setMultiCityOccupancyData([]);
-        setMultiCityOccupancyKeys([]);
         return;
       }
 
@@ -499,25 +488,19 @@ export default function DashboardPage() {
 
       if (cancelled) return;
 
-      const merged = new Map<string, MultiCityOccupancyPoint>();
-      const successfulCities: string[] = [];
+      const points: MultiCityOccupancyPoint[] = [];
 
       results.forEach((result, index) => {
         if (result.status !== "fulfilled") return;
 
         const city = uniqueCities[index];
-        successfulCities.push(city);
-
-        result.value.breakdown.forEach((item) => {
-          const label = item.time_group.split(" ").at(-1) ?? item.time_group;
-          const existing = merged.get(label) ?? { label };
-          existing[city] = Number(item.avg_occupancy.toFixed(2));
-          merged.set(label, existing);
+        points.push({
+          label: city,
+          occupancy: Number(result.value.summary.avg_occupancy.toFixed(2)),
         });
       });
 
-      setMultiCityOccupancyKeys(successfulCities);
-      setMultiCityOccupancyData(Array.from(merged.values()));
+      setMultiCityOccupancyData(points);
     };
 
     loadMultiCityOccupancy();
@@ -969,43 +952,15 @@ export default function DashboardPage() {
                         backgroundColor: "hsl(var(--card))",
                         borderColor: "hsl(var(--border))",
                       }}
-                      formatter={(value, name) => [`${value}%`, name === "occupancy" ? "Occupancy" : name]}
+                      formatter={(value) => [`${value}%`, "Occupancy"]}
                     />
-                    {selectedCity === "all" &&
-                    selectedCinema === "all" &&
-                    enableAllCitiesOccupancy &&
-                    multiCityOccupancyKeys.length > 0 ? (
-                      <>
-                        <Legend
-                          wrapperStyle={{
-                            paddingLeft: "0.5rem",
-                            paddingRight: "0.5rem",
-                            paddingTop: "0.5rem",
-                            fontSize: "12px",
-                          }}
-                          formatter={(value) => <span className="text-xs">{value}</span>}
-                        />
-                        {multiCityOccupancyKeys.map((city, index) => (
-                          <Line
-                            key={city}
-                            type="monotone"
-                            dataKey={city}
-                            stroke={occupancyLineColors[index % occupancyLineColors.length]}
-                            strokeWidth={2.5}
-                            dot={false}
-                            connectNulls
-                          />
-                        ))}
-                      </>
-                    ) : (
-                      <Line
-                        type="monotone"
-                        dataKey="occupancy"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={3}
-                        dot={false}
-                      />
-                    )}
+                    <Line
+                      type="monotone"
+                      dataKey="occupancy"
+                      stroke={enableAllCitiesOccupancy ? occupancyLineColors[1] : "hsl(var(--primary))"}
+                      strokeWidth={3}
+                      dot={false}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (

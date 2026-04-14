@@ -53,7 +53,7 @@ function LiveClock() {
           <span className="h-3 w-3 rounded-full bg-green-500" />
           <span className="text-sm font-medium text-green-500">LIVE</span>
         </div>
-        <div className="text-sm text-zinc-500">Memuat waktu...</div>
+        <div className="text-sm text-zinc-500">Loading time...</div>
       </div>
     );
   }
@@ -94,8 +94,8 @@ export default function DashboardLayout({
   const titleMap: Record<string, string> = {
     "/dashboard/films": "FILM PERFORMANCE",
     "/dashboard/sales": "SALES ANALYTICS",
-    "/dashboard/notifications": "NOTIFIKASI",
-    "/dashboard/settings": "PENGATURAN",
+    "/dashboard/notifications": "NOTIFICATIONS",
+    "/dashboard/settings": "SETTINGS",
     "/dashboard": "DASHBOARD",
     "/login": "ADMIN LOGIN",
   };

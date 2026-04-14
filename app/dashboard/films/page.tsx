@@ -104,6 +104,30 @@ const RATING_COLORS: Record<string, string> = {
     "default": "bg-secondary text-secondary-foreground"
 };
 
+const INVALID_GENRE_VALUES = new Set(["", "-", "unknown", "null", "undefined", "n/a"]);
+
+function normalizeGenreValue(value?: string | null) {
+    const cleaned = String(value ?? "").trim();
+    if (!cleaned) return null;
+    if (INVALID_GENRE_VALUES.has(cleaned.toLowerCase())) return null;
+    return cleaned;
+}
+
+function getMovieGenreLabel(movie: { genres?: string[]; genre?: string | null }) {
+    const validGenres = (movie.genres ?? [])
+        .map((genre) => normalizeGenreValue(genre))
+        .filter((genre): genre is string => Boolean(genre));
+
+    if (validGenres.length > 0) {
+        return Array.from(new Set(validGenres)).join(", ");
+    }
+
+    const singleGenre = normalizeGenreValue(movie.genre);
+    if (singleGenre) return singleGenre;
+
+    return "Others";
+}
+
 const PodiumIcon = ({ rank }: { rank: number }) => {
     if (rank === 1) return <Crown className="h-6 w-6 text-yellow-500" />;
     if (rank === 2) return <Award className="h-6 w-6 text-slate-500" />;
@@ -236,18 +260,13 @@ export default function FilmPerformancePage() {
     const topSellingMovie = data.performance?.top_movie ?? { title: "-" };
     const totalTicketsSold = data.overview?.tickets_sold ?? 0;
     const rawTopGenre = data.distribution?.genre_popularity?.summary?.top_genre?.genre;
-    const topGenreText = rawTopGenre === "Unknown" ? "Others" : (rawTopGenre ?? "-");
+    const topGenreText = normalizeGenreValue(rawTopGenre) ?? "Others";
 
     const filmPerformance = useMemo(() => {
         if (!data.performance?.breakdown) return [];
         return data.performance.breakdown.map((film) => {
             const occEntry = data.occupancy?.by_movie?.find((o) => o.movie_id === film.movie_id);
-            let genresLabel =
-                film.genres && film.genres.length > 0
-                    ? film.genres.join(", ")
-                    : film.genre ?? "—";
-            
-            if (genresLabel === "Unknown") genresLabel = "Others";
+            const genresLabel = getMovieGenreLabel(film);
             return {
                 id: film.movie_id,
                 title: film.title,
@@ -270,7 +289,7 @@ export default function FilmPerformancePage() {
     const genrePerformance = useMemo(() => {
         if (!data.distribution?.genre_popularity?.breakdown) return [];
         return data.distribution.genre_popularity.breakdown.map(g => ({
-            name: g.genre === "Unknown" ? "Others" : g.genre,
+            name: normalizeGenreValue(g.genre) ?? "Others",
             tickets: g.total_tickets,
         })).sort((a, b) => b.tickets - a.tickets);
     }, [data.distribution]);

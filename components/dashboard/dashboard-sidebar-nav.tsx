@@ -39,20 +39,20 @@ function DashboardSidebarNavInner({
   const hrefFor = (path: string) =>
     mergeParamsForDashboardLink(path, new URLSearchParams(searchParams.toString()), pathname);
 
-  const menuUtama: Array<{ href: string; icon: LucideIcon; label: string }> = [
+  const mainMenu: Array<{ href: string; icon: LucideIcon; label: string }> = [
     { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/dashboard/films", icon: Video, label: "Film Performance" },
     { href: "/dashboard/sales", icon: BarChart2, label: "Sales Analytics" },
   ];
 
-  const sistemMenu: Array<{ href: string; icon: LucideIcon; label: string; badge?: string }> = [
+  const systemMenu: Array<{ href: string; icon: LucideIcon; label: string; badge?: string }> = [
     {
       href: "/dashboard/notifications",
       icon: Bell,
-      label: "Notifikasi",
+      label: "Notifications",
       badge: notifCount != null && notifCount > 0 ? String(notifCount) : undefined,
     },
-    { href: "/dashboard/settings", icon: Settings, label: "Pengaturan" },
+    { href: "/dashboard/settings", icon: Settings, label: "Settings" },
   ];
 
   return (
@@ -60,11 +60,11 @@ function DashboardSidebarNavInner({
       <div className="mb-8">
         {!collapsed && (
           <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            MENU UTAMA
+            MAIN MENU
           </div>
         )}
         <ul className="space-y-2">
-          {menuUtama.map((item) => {
+          {mainMenu.map((item) => {
             const active = isMenuActive(pathname, item.href);
             const Icon = item.icon;
             return (
@@ -82,11 +82,11 @@ function DashboardSidebarNavInner({
       <div>
         {!collapsed && (
           <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            SISTEM
+            SYSTEM
           </div>
         )}
         <ul className="space-y-2">
-          {sistemMenu.map((item) => {
+          {systemMenu.map((item) => {
             const active = isMenuActive(pathname, item.href);
             const Icon = item.icon;
             return (
@@ -117,19 +117,19 @@ function SidebarNavFallback({
   notifCount: number | null;
 }) {
   const pathname = usePathname();
-  const menuUtama: Array<{ href: string; icon: LucideIcon; label: string }> = [
+  const mainMenu: Array<{ href: string; icon: LucideIcon; label: string }> = [
     { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { href: "/dashboard/films", icon: Video, label: "Film Performance" },
     { href: "/dashboard/sales", icon: BarChart2, label: "Sales Analytics" },
   ];
-  const sistemMenu: Array<{ href: string; icon: LucideIcon; label: string; badge?: string }> = [
+  const systemMenu: Array<{ href: string; icon: LucideIcon; label: string; badge?: string }> = [
     {
       href: "/dashboard/notifications",
       icon: Bell,
-      label: "Notifikasi",
+      label: "Notifications",
       badge: notifCount != null && notifCount > 0 ? String(notifCount) : undefined,
     },
-    { href: "/dashboard/settings", icon: Settings, label: "Pengaturan" },
+    { href: "/dashboard/settings", icon: Settings, label: "Settings" },
   ];
 
   return (
@@ -137,11 +137,11 @@ function SidebarNavFallback({
       <div className="mb-8">
         {!collapsed && (
           <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            MENU UTAMA
+            MAIN MENU
           </div>
         )}
         <ul className="space-y-2">
-          {menuUtama.map((item) => {
+          {mainMenu.map((item) => {
             const active = isMenuActive(pathname, item.href);
             const Icon = item.icon;
             return (
@@ -158,11 +158,11 @@ function SidebarNavFallback({
       <div>
         {!collapsed && (
           <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            SISTEM
+            SYSTEM
           </div>
         )}
         <ul className="space-y-2">
-          {sistemMenu.map((item) => {
+          {systemMenu.map((item) => {
             const active = isMenuActive(pathname, item.href);
             const Icon = item.icon;
             return (

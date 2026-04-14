@@ -332,6 +332,9 @@ async function fetchJson<T>(
     cacheTtlMs?: number;
     dedupe?: boolean;
     telemetryLabel?: string;
+    acceptedStatuses?: number[];
+    retryOnStatuses?: number[];
+    maxRetries?: number;
   }
 ): Promise<T> {
   const queryString = buildQueryString(query);
@@ -350,6 +353,9 @@ async function fetchJson<T>(
 
   const cacheTtlMs = options?.cacheTtlMs ?? 0;
   const shouldDedupe = options?.dedupe ?? true;
+  const acceptedStatuses = options?.acceptedStatuses ?? [200];
+  const retryOnStatuses = options?.retryOnStatuses ?? [500, 502, 503, 504];
+  const maxRetries = options?.maxRetries ?? 1;
   const cacheKey = `${url}|${headers["Authorization"] ?? "anonymous"}`;
   const now = Date.now();
 
@@ -377,10 +383,26 @@ async function fetchJson<T>(
 
   const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
   const requestPromise = (async () => {
-    const response = await fetch(url, {
-      headers,
-      cache: "default",
-    });
+    let attempt = 0;
+    let response: Response | null = null;
+
+    while (attempt <= maxRetries) {
+      response = await fetch(url, {
+        headers,
+        cache: "default",
+      });
+
+      if (!retryOnStatuses.includes(response.status) || attempt === maxRetries) {
+        break;
+      }
+
+      attempt += 1;
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+
+    if (!response) {
+      throw new Error(`Request failed for ${path} (no response)`);
+    }
 
     if (response.status === 401) {
       if (typeof window !== "undefined") {
@@ -388,10 +410,10 @@ async function fetchJson<T>(
         localStorage.removeItem("cinetrack_user");
         window.location.href = "/login";
       }
-      throw new Error(`Unauthorized (401) - Please log in`);
+      throw new Error("Unauthorized (401) - Please log in");
     }
 
-    if (!response.ok) {
+    if (!acceptedStatuses.includes(response.status)) {
       throw new Error(`Request failed for ${path} (${response.status})`);
     }
 
@@ -616,6 +638,7 @@ export function getSystemHealth() {
   return fetchJson<HealthResponse>("/system/health", undefined, {
     cacheTtlMs: 8_000,
     telemetryLabel: "system_health",
+    acceptedStatuses: [200, 503]
   });
 }
 
