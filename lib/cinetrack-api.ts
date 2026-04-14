@@ -1,5 +1,3 @@
-"use client";
-
 const RAW_BASE_URL = process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL;
 const API_BASE_URL = RAW_BASE_URL
   ? (RAW_BASE_URL.endsWith("/api/v1") ? RAW_BASE_URL : `${RAW_BASE_URL}/api/v1`)
@@ -31,6 +29,8 @@ export type SummaryResponse = {
     revenue: number;
     occupancy: number;
     total_transactions: number;
+    active_cinemas: number;
+    available_cinemas: number;
     cinema_aktif: number;
     cinema_tersedia: number;
     growth?: {
@@ -328,15 +328,13 @@ async function fetchJson<T>(
 
   const response = await fetch(url, {
     headers,
-    cache: "no-store",
+    cache: "default",
   });
 
   if (response.status === 401) {
     if (typeof window !== "undefined") {
-      // Clear invalid token
       localStorage.removeItem("cinetrack_token");
       localStorage.removeItem("cinetrack_user");
-      // Redirect to login
       window.location.href = "/login";
     }
     throw new Error(`Unauthorized (401) - Please log in`);
@@ -375,6 +373,8 @@ export function getDashboardSummary(query?: DashboardQuery) {
       revenue: payload.data.revenue,
       occupancy: payload.data.avg_occupancy ?? payload.data.occupancy ?? 0,
       total_transactions: payload.data.total_transactions,
+      active_cinemas: payload.data.cinema_aktif,
+      available_cinemas: payload.data.cinema_tersedia,
       cinema_aktif: payload.data.cinema_aktif,
       cinema_tersedia: payload.data.cinema_tersedia,
       growth: payload.data.growth,
@@ -784,38 +784,38 @@ export type FilmsDashboardOperationalRisk = {
   }>;
 };
 
-// Fungsi ini mengambil ringkasan utama halaman film dari endpoint dashboard resmi.
-// Data yang dikembalikan sudah sesuai filter kota, bioskop, studio, dan tanggal.
+// Fetches the main films overview from the official dashboard endpoint.
+// Returned data already respects city, cinema, studio, and date filters.
 export function getFilmsDashboardOverview(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardOverview>("/dashboard/films/overview", query);
 }
 
-// Fungsi ini mengambil ranking film berdasarkan tiket, revenue, dan blockbuster score.
-// Hasilnya dipakai untuk chart penjualan film dan kartu top performer.
+// Fetches film ranking by tickets, revenue, and blockbuster score.
+// Used by sales charts and top performer cards.
 export function getFilmsDashboardPerformance(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardPerformance>("/dashboard/films/performance", query);
 }
 
-// Fungsi ini mengambil performa jadwal, repeat show, dan audience density film.
-// Endpoint ini menjadi sumber utama untuk section schedule & efficiency.
+// Fetches schedule performance, repeat shows, and audience density.
+// This endpoint powers the schedule and efficiency sections.
 export function getFilmsDashboardSchedules(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardSchedules>("/dashboard/films/schedules", query);
 }
 
-// Fungsi ini mengambil breakdown occupancy per film, hari, dan studio.
-// Nilai mentahnya tetap dibiarkan apa adanya agar normalisasi dilakukan dekat UI.
+// Fetches occupancy breakdown by movie, day, and studio.
+// Raw values are intentionally preserved so normalization stays close to the UI.
 export function getFilmsDashboardOccupancy(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardOccupancy>("/dashboard/films/occupancy", query);
 }
 
-// Fungsi ini mengambil distribusi genre dan format studio dari dashboard film.
-// Data ini dipakai untuk komposisi mix penonton dan penjadwalan screen.
+// Fetches genre and studio-format distribution for films dashboard.
+// Used for audience mix and screen scheduling composition.
 export function getFilmsDashboardDistribution(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardDistribution>("/dashboard/films/distribution", query);
 }
 
-// Fungsi ini mengambil ringkasan risiko operasional film seperti cancel dan delay.
-// Data ini dipakai untuk kartu problematic shows dan tabel schedule bermasalah.
+// Fetches film operational risk summary such as cancellations and delays.
+// Used by problematic-show cards and issue schedule tables.
 export function getFilmsDashboardOperationalRisk(query?: DashboardQuery) {
   return fetchJson<FilmsDashboardOperationalRisk>("/dashboard/films/operational-risk", query);
 }
@@ -1004,7 +1004,7 @@ export function getSalesDashboardOperationalRisk(query?: DashboardQuery) {
   return fetchJson<SalesDashboardOperationalRisk>("/dashboard/sales/operational-risk", query);
 }
 
-/** Satu panggilan menggantikan enam request terpisah untuk halaman Films (perlu token admin). */
+/** One call replaces six separate requests for the Films page (requires admin token). */
 export type FilmsAnalyticsBundlePayload = {
   overview: FilmsDashboardOverview;
   performance: FilmsDashboardPerformance;
@@ -1014,7 +1014,7 @@ export type FilmsAnalyticsBundlePayload = {
   operational_risk: FilmsDashboardOperationalRisk;
 };
 
-/** Satu panggilan menggantikan delapan request terpisah untuk halaman Sales (perlu token admin). */
+/** One call replaces eight separate requests for the Sales page (requires admin token). */
 export type SalesAnalyticsBundlePayload = {
   overview: SalesDashboardOverview;
   revenue_by_cinema: SalesDashboardRevenueByCinema;
@@ -1038,7 +1038,7 @@ export function getSalesAnalyticsBundle(
 
 export function getCities() {
   return fetchJson<string[] | Array<{ city?: string; name?: string }>>("/cities", undefined, { unwrapEnvelope: false }).then(payload => {
-    // API sometimes returns an envelope, sometimes not. Let's handle it safely.
+    // API can return either an envelope or a direct array.
     let data;
     if (payload && typeof payload === "object" && "data" in payload && Array.isArray((payload as any).data)) {
       data = (payload as any).data;
@@ -1078,7 +1078,33 @@ export function getDashboardNotifications() {
       } else {
         data = [];
       }
-      return data as DashboardNotification[];
+      return (data as any[]).map((item, index) => {
+        const rawImpact = item.impact ?? item.impact_size;
+        const normalizedImpact =
+          rawImpact == null || rawImpact === ""
+            ? "-"
+            : typeof rawImpact === "number"
+              ? `${rawImpact}`
+              : String(rawImpact);
+
+        const rawWhere = item.where ?? item.location ?? "Global";
+        const normalizedWhere =
+          typeof rawWhere === "string" && rawWhere.toLowerCase() === "network"
+            ? "Global"
+            : String(rawWhere);
+
+        return {
+          id: String(item.id ?? item.notification_id ?? `notif-${index}`),
+          type: String(item.type ?? item.notification_id ?? "notification"),
+          severity: String(item.severity ?? "info"),
+          title: String(item.title ?? "System alert"),
+          what: String(item.what ?? item.what_happened ?? item.message ?? "-"),
+          where: normalizedWhere,
+          impact: normalizedImpact,
+          action: String(item.action ?? item.recommended_action ?? "-"),
+          createdAt: String(item.createdAt ?? item.created_at ?? new Date().toISOString()),
+        } as DashboardNotification;
+      });
     })
     .catch(err => {
       console.warn("API /dashboard/notifications returned an error:", err.message);
@@ -1098,7 +1124,7 @@ export type AuthResponse = {
 };
 
 export async function loginAdmin(email: string, password: string): Promise<AuthResponse> {
-  // Can't use API_BASE_URL because it's not exported, but it's local to the file so we can string interpolate it.
+  // Keep login URL explicit because this helper bypasses fetchJson().
   const url = `${process.env.NEXT_PUBLIC_CINETRACK_API_BASE_URL ?? "https://capstone-project-api-cinetrack.vercel.app/api/v1"}/auth/login`;
   const response = await fetch(url, {
     method: "POST",

@@ -50,9 +50,9 @@ export default function SettingsPage() {
   return (
     <main className="space-y-6 text-foreground">
       <div>
-        <h1 className="text-2xl font-bold">Pengaturan</h1>
+        <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Kelola preferensi tampilan dashboard.
+          Manage your dashboard display preferences.
         </p>
       </div>
 

@@ -22,7 +22,7 @@ const STORAGE_KEY = "kada-theme";
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-// Fungsi ini membaca tema yang tersimpan dan kembali ke "system" jika tidak valid.
+// Reads persisted theme and falls back to "system" if invalid.
 // Nilai ini dipakai sebagai sumber awal state tema di client.
 const getStoredTheme = (): Theme => {
   if (typeof window === "undefined") return "system";
@@ -33,7 +33,7 @@ const getStoredTheme = (): Theme => {
     : "system";
 };
 
-// Fungsi ini menerjemahkan mode tema menjadi tema aktif akhir.
+// Maps selected theme mode to the final active theme.
 // Saat mode "system", hasilnya mengikuti preferensi OS pengguna.
 const resolveTheme = (theme: Theme): ResolvedTheme => {
   if (theme !== "system") return theme;
@@ -45,8 +45,8 @@ const resolveTheme = (theme: Theme): ResolvedTheme => {
     : "light";
 };
 
-// Fungsi ini memasang atau melepas class `dark` pada elemen root.
-// Class ini dipakai Tailwind untuk mengganti token warna global.
+// Adds or removes the `dark` class on the root element.
+// Tailwind uses this class to switch global color tokens.
 const applyThemeClass = (theme: ResolvedTheme) => {
   document.documentElement.classList.toggle("dark", theme === "dark");
 };
@@ -69,8 +69,8 @@ export default function AppThemeProvider({
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
 
-    // Listener ini menyelaraskan tema aktif ketika mode "system" dan OS berubah.
-    // Update hanya dijalankan untuk mode system agar pilihan manual tetap stabil.
+    // Keeps active theme in sync when using "system" mode and OS theme changes.
+    // Updates only run in system mode so manual choices stay stable.
     const handleChange = () => {
       setThemeState((currentTheme) => {
         if (currentTheme !== "system") return currentTheme;
@@ -89,7 +89,7 @@ export default function AppThemeProvider({
     };
   }, []);
 
-  // Fungsi ini menyimpan pilihan tema baru lalu langsung menerapkannya ke DOM.
+  // Persists the selected theme and applies it to the DOM immediately.
   // Penyimpanan lokal menjaga preferensi tetap konsisten antar refresh.
   const setTheme = (nextTheme: Theme) => {
     const nextResolvedTheme = resolveTheme(nextTheme);
@@ -112,7 +112,7 @@ export default function AppThemeProvider({
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
-// Fungsi ini memberi akses aman ke state tema dari komponen client lain.
+// Provides safe access to theme state for other client components.
 // Hook akan melempar error bila dipakai di luar provider tema.
 export const useTheme = () => {
   const context = useContext(ThemeContext);

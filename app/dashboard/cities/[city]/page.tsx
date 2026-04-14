@@ -296,29 +296,6 @@ export default function CityDetailPage() {
         getOccupancyStats({ city, ...dateQuery }),
       ]);
 
-      let cinemasData = results[1].status === "fulfilled" ? results[1].value : null;
-
-      if (cinemasData && cinemasData.breakdown.length > 0 && !cancelled) {
-        const cinemaSummaries = await Promise.allSettled(
-          cinemasData.breakdown.map((cinema) =>
-            getDashboardSummary({ city, cinema_id: cinema.cinema_id, ...dateQuery })
-          )
-        );
-
-        if (!cancelled) {
-          cinemasData.breakdown.forEach((cinema, i) => {
-            const sumRes = cinemaSummaries[i];
-            if (sumRes.status === "fulfilled") {
-              cinema.metrics.total_tickets = sumRes.value.data.total_tickets;
-              cinema.metrics.total_revenue = sumRes.value.data.revenue;
-              if (sumRes.value.data.occupancy !== undefined) {
-                cinema.metrics.occupancy = sumRes.value.data.occupancy;
-              }
-            }
-          });
-        }
-      }
-
       if (cancelled) return;
 
       const cinemaMetrics = results[1].status === "fulfilled" ? results[1].value : null;
@@ -346,7 +323,7 @@ export default function CityDetailPage() {
 
       const rejected = results.find((result) => result.status === "rejected");
       if (rejected?.status === "rejected") {
-        setError(rejected.reason instanceof Error ? rejected.reason.message : "Gagal memuat data kota.");
+        setError(rejected.reason instanceof Error ? rejected.reason.message : "Failed to load city data.");
       }
 
       setLoading(false);
@@ -509,7 +486,7 @@ export default function CityDetailPage() {
       } catch (reason) {
         if (cancelled) return;
         setCitySchedulesError(
-          reason instanceof Error ? reason.message : "Gagal memuat breakdown schedule kota."
+          reason instanceof Error ? reason.message : "Failed to load city schedule breakdown."
         );
       } finally {
         if (!cancelled) {
@@ -548,7 +525,7 @@ export default function CityDetailPage() {
       studiosToLoad.map(async (studio) => {
         const studioId = studio.studio_id ?? studio.id;
         if (!studioId) {
-          throw new Error("Studio ID tidak tersedia.");
+          throw new Error("Studio ID is not available.");
         }
 
         const summary = await getDashboardSummary({
@@ -586,7 +563,7 @@ export default function CityDetailPage() {
         nextErrors[studioId] =
           result.reason instanceof Error
             ? result.reason.message
-            : "Gagal memuat metrik studio.";
+            : "Failed to load studio metrics.";
       }
     });
 
@@ -709,7 +686,7 @@ export default function CityDetailPage() {
         nextErrors[studioId] =
           result.reason instanceof Error
             ? result.reason.message
-            : "Gagal memuat breakdown studio.";
+            : "Failed to load studio breakdown.";
       }
     });
 
@@ -744,7 +721,7 @@ export default function CityDetailPage() {
       setStudioErrors((current) => ({
         ...current,
         [cinemaId]:
-          reason instanceof Error ? reason.message : "Gagal memuat detail studio.",
+          reason instanceof Error ? reason.message : "Failed to load studio details.",
       }));
     } finally {
       setStudioLoading((current) => ({ ...current, [cinemaId]: false }));
@@ -788,11 +765,10 @@ export default function CityDetailPage() {
           <div className="min-w-0 flex-1 space-y-1.5">
             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
               <MapPinned className="h-6 w-6 text-primary" />
-              Performa Kota: {city}
+              City Performance: {city}
             </h1>
             <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-              Menampilkan data performa terperinci untuk kota yang dipilih. Filter tanggal 
-              saat ini akan otomatis diterapkan jika Anda beralih ke analitik lanjutan.
+              Shows detailed performance data for the selected city. Current date filters are automatically preserved when switching to advanced analytics.
             </p>
           </div>
         </div>
@@ -801,13 +777,13 @@ export default function CityDetailPage() {
           <Button variant="outline" className="gap-2 bg-background shadow-sm hover:bg-muted" asChild>
             <Link href={filmsHref}>
               <Film className="h-4 w-4 text-emerald-500" />
-              Detail Performa Film
+              Film Performance Details
             </Link>
           </Button>
           <Button variant="outline" className="gap-2 bg-background shadow-sm hover:bg-muted" asChild>
             <Link href={salesHref}>
               <TrendingUp className="h-4 w-4 text-blue-500" />
-              Detail Analitik Sales
+              Sales Analytics Details
             </Link>
           </Button>
         </div>
@@ -821,7 +797,7 @@ export default function CityDetailPage() {
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            title="Tiket Terjual"
+            title="Tickets Sold"
             value={data.cinemas ? cinemaMetricTotals.totalTickets.toLocaleString("id-ID") : "--"}
             subtitle={growth?.tickets !== undefined ? `${formatGrowth(growth.tickets)} vs previous period` : undefined}
             loading={loading}
@@ -835,14 +811,14 @@ export default function CityDetailPage() {
             icon={DollarSign}
         />
           <StatCard
-            title="Jumlah Bioskop"
+            title="Total Cinemas"
             value={data.cinemas ? String(cinemaMetricTotals.totalCinemas) : "--"}
-            subtitle="Bioskop yang terdaftar di kota ini"
+            subtitle="Registered cinemas in this city"
             loading={loading}
             icon={Building2}
         />
         <StatCard
-          title="Rata-rata Okupansi"
+          title="Average Occupancy"
           value={data.summary ? formatPercent(data.summary.data.occupancy) : "--"}
           subtitle={
             growth?.avg_occupancy !== undefined
@@ -858,34 +834,34 @@ export default function CityDetailPage() {
         <TabsList className="h-auto flex-wrap rounded-2xl bg-muted/60 p-2">
           <TabsTrigger value="cinema" className="gap-2 rounded-xl px-4 py-2">
             <Building2 className="h-4 w-4" />
-            Performa Bioskop
+            Cinema Performance
           </TabsTrigger>
           <TabsTrigger value="film" className="gap-2 rounded-xl px-4 py-2">
             <Film className="h-4 w-4" />
-            Performa Film
+            Film Performance
           </TabsTrigger>
           <TabsTrigger value="sales" className="gap-2 rounded-xl px-4 py-2">
             <TrendingUp className="h-4 w-4" />
-            Data Penjualan
+            Sales Data
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="cinema" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Daftar Bioskop</CardTitle>
-              <CardDescription>Ringkasan performa seluruh bioskop di {city}.</CardDescription>
+              <CardTitle>Cinema List</CardTitle>
+              <CardDescription>Performance summary for all cinemas in {city}.</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-14 text-center">Detail</TableHead>
-                    <TableHead>Bioskop</TableHead>
-                    <TableHead>Kota</TableHead>
-                    <TableHead className="text-right">Tiket</TableHead>
+                    <TableHead>Cinema</TableHead>
+                    <TableHead>City</TableHead>
+                    <TableHead className="text-right">Tickets</TableHead>
                     <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead className="text-right">Film Aktif</TableHead>
+                    <TableHead className="text-right">Active Movies</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -903,7 +879,7 @@ export default function CityDetailPage() {
                                 size="icon"
                                 className="h-8 w-8 rounded-lg"
                                 onClick={() => void toggleCinemaStudios(cinema.cinema_id)}
-                                aria-label={`Lihat detail studio ${cinema.cinema_name}`}
+                                aria-label={`View studio details for ${cinema.cinema_name}`}
                               >
                                 {isExpanded ? (
                                   <ChevronUp className="h-4 w-4" />
@@ -932,7 +908,7 @@ export default function CityDetailPage() {
                                 <div className="rounded-xl border border-border bg-background p-4">
                                   <div className="mb-3 flex items-center justify-between">
                                     <p className="text-sm font-semibold text-foreground">
-                                      Detail Studio
+                                      Studio Details
                                     </p>
                                     <Badge variant="outline">
                                       {studioLoading[cinema.cinema_id]
@@ -943,7 +919,7 @@ export default function CityDetailPage() {
 
                                   {studioLoading[cinema.cinema_id] ? (
                                     <p className="text-sm text-muted-foreground">
-                                      Memuat detail studio...
+                                      Loading studio details...
                                     </p>
                                   ) : studioErrors[cinema.cinema_id] ? (
                                     <p className="text-sm text-amber-700">
@@ -1010,7 +986,7 @@ export default function CityDetailPage() {
                                                 <>
                                                   {metricsLoading ? (
                                                     <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
-                                                      <p>Memuat metrik studio...</p>
+                                                      <p>Loading studio metrics...</p>
                                                     </div>
                                                   ) : metricsError ? (
                                                     <div className="mt-3 text-sm text-amber-700">
@@ -1041,7 +1017,7 @@ export default function CityDetailPage() {
 
                                                       {breakdownLoading ? (
                                                         <p className="text-sm text-muted-foreground">
-                                                          Memuat breakdown studio...
+                                                          Loading studio breakdown...
                                                         </p>
                                                       ) : breakdownError ? (
                                                         <p className="text-sm text-amber-700">{breakdownError}</p>
@@ -1076,7 +1052,7 @@ export default function CityDetailPage() {
                                                                       <TableRow>
                                                                         <TableHead>Movie</TableHead>
                                                                         <TableHead className="text-right">Schedules</TableHead>
-                                                                        <TableHead className="text-right">Tiket</TableHead>
+                                                                        <TableHead className="text-right">Tickets</TableHead>
                                                                         <TableHead className="text-right">Occupancy</TableHead>
                                                                       </TableRow>
                                                                     </TableHeader>
@@ -1101,7 +1077,7 @@ export default function CityDetailPage() {
                                                                   </Table>
                                                                 ) : (
                                                                   <p className="text-sm text-muted-foreground">
-                                                                    Belum ada breakdown movie.
+                                                                    No movie breakdown yet.
                                                                   </p>
                                                                 )}
                                                               </div>
@@ -1137,7 +1113,7 @@ export default function CityDetailPage() {
                                                                       <TableRow>
                                                                         <TableHead>Movie</TableHead>
                                                                         <TableHead>Schedule</TableHead>
-                                                                        <TableHead className="text-right">Tiket</TableHead>
+                                                                        <TableHead className="text-right">Tickets</TableHead>
                                                                         <TableHead className="text-right">Occupancy</TableHead>
                                                                       </TableRow>
                                                                     </TableHeader>
@@ -1162,7 +1138,7 @@ export default function CityDetailPage() {
                                                                   </Table>
                                                                 ) : (
                                                                   <p className="text-sm text-muted-foreground">
-                                                                    Belum ada breakdown schedule.
+                                                                    No schedule breakdown yet.
                                                                   </p>
                                                                 )}
                                                               </div>
@@ -1181,7 +1157,7 @@ export default function CityDetailPage() {
                                     </div>
                                   ) : (
                                     <p className="text-sm text-muted-foreground">
-                                      Belum ada data studio untuk bioskop ini.
+                                      No studio data for this cinema.
                                     </p>
                                   )}
                                 </div>
@@ -1194,7 +1170,7 @@ export default function CityDetailPage() {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center text-muted-foreground">
-                        {loading ? "Loading..." : "Belum ada data bioskop untuk kota ini."}
+                        {loading ? "Loading..." : "No cinema data for this city."}
                       </TableCell>
                     </TableRow>
                   )}
@@ -1209,7 +1185,7 @@ export default function CityDetailPage() {
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Highlight Film</CardTitle>
-                <CardDescription>Ringkasan film teratas untuk kota {city}.</CardDescription>
+                <CardDescription>Top film summary for city {city}.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-2xl border border-border bg-muted/20 p-4">
@@ -1218,7 +1194,7 @@ export default function CityDetailPage() {
                     {data.movieStats?.summary.top_movie.title ?? "--"}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {data.movieStats?.summary.top_movie.tickets_sold?.toLocaleString("id-ID") ?? "--"} tiket
+                    {data.movieStats?.summary.top_movie.tickets_sold?.toLocaleString("id-ID") ?? "--"} tickets
                   </p>
                 </div>
                 <div className="rounded-2xl border border-border bg-muted/20 p-4">
@@ -1227,7 +1203,7 @@ export default function CityDetailPage() {
                     {data.movieStats?.summary.top_genre.genre ?? "--"}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {data.movieStats?.summary.top_genre.tickets_sold?.toLocaleString("id-ID") ?? "--"} tiket
+                    {data.movieStats?.summary.top_genre.tickets_sold?.toLocaleString("id-ID") ?? "--"} tickets
                   </p>
                 </div>
                 <div className="rounded-2xl border border-border bg-muted/20 p-4">
@@ -1237,10 +1213,10 @@ export default function CityDetailPage() {
                       <div key={item.rating_usia} className="flex items-center justify-between gap-3 text-sm">
                         <Badge variant="outline">{item.rating_usia}</Badge>
                         <span className="text-muted-foreground">
-                          {item.total_tickets_sold.toLocaleString("id-ID")} tiket
+                          {item.total_tickets_sold.toLocaleString("id-ID")} tickets
                         </span>
                       </div>
-                    )) ?? <p className="text-sm text-muted-foreground">Belum ada data rating.</p>}
+                    )) ?? <p className="text-sm text-muted-foreground">No rating data yet.</p>}
                   </div>
                 </div>
               </CardContent>
@@ -1248,8 +1224,8 @@ export default function CityDetailPage() {
 
             <Card className="lg:col-span-3">
               <CardHeader>
-                <CardTitle>Top Film di {city}</CardTitle>
-                <CardDescription>Film terlaris berdasarkan total tiket dan revenue.</CardDescription>
+                <CardTitle>Top Films in {city}</CardTitle>
+                <CardDescription>Top-selling films based on total tickets and revenue.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -1257,7 +1233,7 @@ export default function CityDetailPage() {
                     <TableRow>
                       <TableHead>Film</TableHead>
                       <TableHead>Genre</TableHead>
-                      <TableHead className="text-right">Tiket</TableHead>
+                      <TableHead className="text-right">Tickets</TableHead>
                       <TableHead className="text-right">Occupancy</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1279,7 +1255,7 @@ export default function CityDetailPage() {
                     ) : (
                       <TableRow>
                         <TableCell colSpan={4} className="text-center text-muted-foreground">
-                          {loading ? "Loading..." : "Belum ada data film untuk kota ini."}
+                          {loading ? "Loading..." : "No movie data for this city."}
                         </TableCell>
                       </TableRow>
                     )}
@@ -1294,8 +1270,8 @@ export default function CityDetailPage() {
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Tren Penjualan</CardTitle>
-                <CardDescription>Total tiket per jam di {city}.</CardDescription>
+                <CardTitle>Sales Trend</CardTitle>
+                <CardDescription>Total tickets per hour in {city}.</CardDescription>
               </CardHeader>
               <CardContent className="h-[320px]">
                 {salesChartData.length > 0 ? (
@@ -1310,7 +1286,7 @@ export default function CityDetailPage() {
                   </ResponsiveContainer>
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                    {loading ? "Loading..." : "Belum ada data penjualan."}
+                    {loading ? "Loading..." : "No sales data yet."}
                   </div>
                 )}
               </CardContent>
@@ -1318,8 +1294,8 @@ export default function CityDetailPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Okupansi per Jam</CardTitle>
-                <CardDescription>Pergerakan okupansi kota {city} pada periode aktif.</CardDescription>
+                <CardTitle>Hourly Occupancy</CardTitle>
+                <CardDescription>City occupancy trend for {city} in the active period.</CardDescription>
               </CardHeader>
               <CardContent className="h-[320px]">
                 {occupancyChartData.length > 0 ? (
@@ -1328,7 +1304,7 @@ export default function CityDetailPage() {
                       <CartesianGrid vertical={false} strokeDasharray="3 3" />
                       <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} />
                       <YAxis tickLine={false} axisLine={false} fontSize={12} />
-                      <Tooltip formatter={(value) => [`${value}%`, "Okupansi"]} />
+                      <Tooltip formatter={(value) => [`${value}%`, "Occupancy"]} />
                       <Line
                         type="monotone"
                         dataKey="occupancy"
@@ -1340,7 +1316,7 @@ export default function CityDetailPage() {
                   </ResponsiveContainer>
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                    {loading ? "Loading..." : "Belum ada data okupansi."}
+                    {loading ? "Loading..." : "No occupancy data yet."}
                   </div>
                 )}
               </CardContent>
@@ -1349,21 +1325,21 @@ export default function CityDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Snapshot Kota</CardTitle>
-              <CardDescription>Informasi cepat untuk analisis penjualan dan distribusi node.</CardDescription>
+              <CardTitle>Snapshot City</CardTitle>
+              <CardDescription>Quick info for sales analysis and node distribution.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-3">
               <div className="rounded-2xl border border-border bg-muted/20 p-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <MapPinned className="h-4 w-4" />
-                  Kota Aktif
+                  Active City
                 </div>
                 <p className="mt-2 text-xl font-semibold">{city}</p>
               </div>
               <div className="rounded-2xl border border-border bg-muted/20 p-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Building2 className="h-4 w-4" />
-                  Bioskop Aktif
+                  Active Cinemas
                 </div>
                 <p className="mt-2 text-xl font-semibold">
                   {data.cinemas?.summary.active_cinemas ?? 0}
@@ -1372,7 +1348,7 @@ export default function CityDetailPage() {
               <div className="rounded-2xl border border-border bg-muted/20 p-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Ticket className="h-4 w-4" />
-                  Total Transaksi
+                  Total Transactions
                 </div>
                 <p className="mt-2 text-xl font-semibold">
                   {data.summary?.data.total_transactions?.toLocaleString("id-ID") ?? "--"}

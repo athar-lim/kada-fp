@@ -45,21 +45,21 @@ const getSeverityConfig = (severity: string) => {
     borderClass: "border-l-red-500",
     iconBg: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800",
     iconColor: "text-red-600 dark:text-red-400",
-    label: "Kritis",
+    label: "Critical",
   };
   if (severity === "warning") return {
     badgeClass: "bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400",
     borderClass: "border-l-amber-500",
     iconBg: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800",
     iconColor: "text-amber-600 dark:text-amber-400",
-    label: "Peringatan",
+    label: "Warning",
   };
   if (severity === "opportunity") return {
     badgeClass: "bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400",
     borderClass: "border-l-green-500",
     iconBg: "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800",
     iconColor: "text-green-600 dark:text-green-400",
-    label: "Peluang",
+    label: "Opportunity",
   };
   return {
     badgeClass: "bg-secondary text-secondary-foreground",
@@ -73,7 +73,7 @@ const getSeverityConfig = (severity: string) => {
 const getImpactConfig = (level?: string) => {
   if (!level) return { class: "bg-muted text-muted-foreground border-border", label: "—" };
   const l = level.toLowerCase();
-  if (l === "high" || l === "kritis") return { class: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-200", label: "High Impact" };
+  if (l === "high" || l === "critical") return { class: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-200", label: "High Impact" };
   if (l === "medium") return { class: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200", label: "Medium Impact" };
   return { class: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-200", label: "Low Impact" };
 };
@@ -147,10 +147,10 @@ export default function NotificationsPage() {
   const SeverityFilter = () => (
     <div className="flex flex-wrap gap-2">
       {[
-        { value: "all", label: "Semua", count: summary.total },
-        { value: "critical", label: "Kritis", dot: "bg-red-500" as const, count: summary.critical },
-        { value: "warning", label: "Peringatan", dot: "bg-amber-500" as const, count: summary.warning },
-        { value: "opportunity", label: "Peluang", dot: "bg-green-500" as const, count: summary.opportunity },
+        { value: "all", label: "All", count: summary.total },
+        { value: "critical", label: "Critical", dot: "bg-red-500" as const, count: summary.critical },
+        { value: "warning", label: "Warning", dot: "bg-amber-500" as const, count: summary.warning },
+        { value: "opportunity", label: "Opportunity", dot: "bg-green-500" as const, count: summary.opportunity },
       ].map((item) => (
         <button
           key={item.value}
@@ -189,15 +189,15 @@ export default function NotificationsPage() {
             )}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Riwayat insight AI dan alert operasional dalam satu halaman, lengkap dengan dampak dan rekomendasi tindakan.
+            AI insight history and operational alerts in one place, including impact and recommended actions.
           </p>
         </div>
 
         {/* Tab switcher */}
         <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/40 p-1 self-start">
           {([
-            { id: "all", label: "Semua", count: totalAlerts },
-            { id: "system", label: "Sistem", count: summary.total },
+            { id: "all", label: "All", count: totalAlerts },
+            { id: "system", label: "System", count: summary.total },
             { id: "ai", label: "AI Insights", count: aiInsights.length },
           ] as const).map((t) => (
             <button
@@ -221,77 +221,21 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* ── SUMMARY CARDS ── */}
-      <div className="grid gap-4 grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Total Alert</CardTitle>
+              <CardTitle className="text-sm font-medium">System Alerts</CardTitle>
               <Bell className="h-4 w-4 text-muted-foreground" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{summary.total}</div>
-            <p className="text-xs text-muted-foreground mt-1">Notifikasi sistem aktif</p>
-            {summary.total > 0 && (
-              <div className="mt-2 flex gap-1">
-                {summary.critical > 0 && <div className="h-1.5 rounded-full bg-red-500" style={{ width: `${(summary.critical / summary.total) * 100}%` }} />}
-                {summary.warning > 0 && <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${(summary.warning / summary.total) * 100}%` }} />}
-                {summary.opportunity > 0 && <div className="h-1.5 rounded-full bg-green-500" style={{ width: `${(summary.opportunity / summary.total) * 100}%` }} />}
-              </div>
-            )}
+            <p className="text-xs text-muted-foreground mt-1">Active operational alerts</p>
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-red-500">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Kritis</CardTitle>
-              <Zap className="h-4 w-4 text-red-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{summary.critical}</div>
-            <p className="text-xs text-muted-foreground mt-1">Butuh perhatian segera</p>
-            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-red-500" style={{ width: summary.total > 0 ? `${(summary.critical / summary.total) * 100}%` : "0%" }} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-amber-500">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Peringatan</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">{summary.warning}</div>
-            <p className="text-xs text-muted-foreground mt-1">Anomali performa</p>
-            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-amber-500" style={{ width: summary.total > 0 ? `${(summary.warning / summary.total) * 100}%` : "0%" }} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-green-500">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium">Peluang</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-500" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{summary.opportunity}</div>
-            <p className="text-xs text-muted-foreground mt-1">Potensi optimasi</p>
-            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-green-500" style={{ width: summary.total > 0 ? `${(summary.opportunity / summary.total) * 100}%` : "0%" }} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-primary col-span-2 xl:col-span-1">
+        <Card className="border-l-4 border-l-primary">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">AI Insights</CardTitle>
@@ -300,116 +244,86 @@ export default function NotificationsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">{aiInsights.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">Temuan AI tersimpan</p>
-            <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-primary" style={{ width: aiInsights.length > 0 ? "100%" : "0%" }} />
-            </div>
+            <p className="text-xs text-muted-foreground mt-1">Stored AI findings</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* ── SEVERITY FILTER (always shown on all/system tabs) ── */}
-      {(activeTab === "all" || activeTab === "system") && (
-        <SeverityFilter />
-      )}
+      {(activeTab === "all" || activeTab === "system") && <SeverityFilter />}
 
-      {/* ── SYSTEM ALERTS ── */}
       {(activeTab === "all" || activeTab === "system") && (
-        <>
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-600" />
+            <h2 className="text-base font-semibold">System Alerts</h2>
+            <Separator className="flex-1" />
+            <span className="text-xs text-muted-foreground">{filteredNotifications.length} alerts</span>
+          </div>
+
           {loading ? (
             <Card>
               <CardContent className="py-12 flex flex-col items-center gap-3">
                 <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                <p className="text-sm text-muted-foreground">Memuat notifikasi sistem...</p>
+                <p className="text-sm text-muted-foreground">Loading system alerts...</p>
               </CardContent>
             </Card>
-          ) : notifications.length === 0 ? (
+          ) : filteredNotifications.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
                 <CheckCircle2 className="h-12 w-12 text-green-500/40" />
-                <p className="text-sm font-medium text-muted-foreground">Tidak ada alert sistem aktif.</p>
-                <p className="text-xs text-muted-foreground">Semua operasional berjalan normal.</p>
+                <p className="text-sm font-medium text-muted-foreground">No alerts for the selected severity.</p>
               </CardContent>
             </Card>
           ) : (
-            <>
-              {([
-                { key: "critical", title: "Isu Kritis", icon: Zap, items: groupedNotifications.critical, colorClass: "text-red-600" },
-                { key: "warning", title: "Anomali Performa", icon: AlertTriangle, items: groupedNotifications.warning, colorClass: "text-amber-600" },
-                { key: "opportunity", title: "Peluang Optimasi", icon: LightbulbIcon, items: groupedNotifications.opportunity, colorClass: "text-green-600" },
-              ].map((group) => {
-                const Icon = group.icon;
-                // In "all" mode, skip empty groups; in "system" mode, always show all groups
-                if (activeTab === "all" && group.items.length === 0) return null;
-
+            <div className="grid gap-4">
+              {filteredNotifications.map((item, index) => {
+                const ItemIcon = getNotificationIcon(item.type);
+                const cfg = getSeverityConfig(item.severity);
                 return (
-                  <section key={group.key} className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <Icon className={`h-5 w-5 ${group.colorClass}`} />
-                      <h2 className={`text-base font-semibold ${group.colorClass}`}>{group.title}</h2>
-                      <Separator className="flex-1" />
-                      <span className="text-xs text-muted-foreground">{group.items.length} alert</span>
-                    </div>
-
-                    {group.items.length > 0 ? (
-                      <div className="grid gap-4">
-                        {group.items.map((item, index) => {
-                          const ItemIcon = getNotificationIcon(item.type);
-                          const cfg = getSeverityConfig(item.severity);
-                          return (
-                            <Card key={item.id || `notif-${index}`} className={`border-l-4 ${cfg.borderClass}`}>
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="flex items-start gap-3">
-                                    <div className={`mt-0.5 rounded-xl border p-2 ${cfg.iconBg}`}>
-                                      <ItemIcon className={`h-4 w-4 ${cfg.iconColor}`} />
-                                    </div>
-                                    <div>
-                                      <CardTitle className="text-sm font-semibold">{item.title}</CardTitle>
-                                      <CardDescription className="flex items-center gap-1 mt-1">
-                                        <Clock className="h-3 w-3" />
-                                        {item.createdAt}
-                                      </CardDescription>
-                                    </div>
-                                  </div>
-                                  <Badge className={cfg.badgeClass}>{cfg.label}</Badge>
-                                </div>
-                              </CardHeader>
-
-                              <CardContent className="grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-4">
-                                {[
-                                  { label: "Kejadian", value: item.what },
-                                  { label: "Lokasi", value: item.where },
-                                  { label: "Dampak", value: item.impact },
-                                  { label: "Tindakan", value: item.action, highlight: true },
-                                ].map((col) => (
-                                  <div key={col.label} className={col.highlight ? "rounded-xl bg-primary/5 p-3 border border-primary/10" : ""}>
-                                    <p className={`text-[10px] font-bold uppercase tracking-widest ${col.highlight ? "text-primary/80" : "text-muted-foreground"}`}>
-                                      {col.label}
-                                    </p>
-                                    <p className={`mt-1 text-sm ${col.highlight ? "font-medium text-foreground" : "text-muted-foreground"}`}>
-                                      {col.value}
-                                    </p>
-                                  </div>
-                                ))}
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
+                  <Card key={item.id || `notif-${index}`} className={`border-l-4 ${cfg.borderClass}`}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3">
+                          <div className={`mt-0.5 rounded-xl border p-2 ${cfg.iconBg}`}>
+                            <ItemIcon className={`h-4 w-4 ${cfg.iconColor}`} />
+                          </div>
+                          <div>
+                            <CardTitle className="text-sm font-semibold">{item.title}</CardTitle>
+                            <CardDescription className="flex items-center gap-1 mt-1">
+                              <Clock className="h-3 w-3" />
+                              {item.createdAt}
+                            </CardDescription>
+                          </div>
+                        </div>
+                        <Badge className={cfg.badgeClass}>{cfg.label}</Badge>
                       </div>
-                    ) : (
-                      <Card>
-                        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                          Tidak ada alert di kategori ini.
-                        </CardContent>
-                      </Card>
-                    )}
-                  </section>
+                    </CardHeader>
+                    <CardContent className="border-t pt-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">What Happened</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{item.what || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Where</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{item.where || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Impact</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{item.impact || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Recommended Action</p>
+                          <p className="mt-1 text-sm text-foreground">{item.action || "-"}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 );
-              }))}
-            </>
+              })}
+            </div>
           )}
-        </>
+        </section>
       )}
 
       {/* ── AI INSIGHTS HISTORY ── */}
@@ -419,7 +333,7 @@ export default function NotificationsPage() {
             <BrainCircuit className="h-5 w-5 text-primary" />
             <h2 className="text-base font-semibold text-primary">AI Operational Intelligence History</h2>
             <Separator className="flex-1" />
-            <span className="text-xs text-muted-foreground">{aiInsights.length} history tersedia</span>
+            <span className="text-xs text-muted-foreground">{aiInsights.length} history items</span>
           </div>
 
           {aiInsights.length > 0 ? (
@@ -466,7 +380,7 @@ export default function NotificationsPage() {
                       <div className="grid gap-4 lg:grid-cols-2">
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                            Analisis &amp; Temuan
+                            Analysis &amp; Findings
                           </p>
                           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                             {summary}
@@ -475,7 +389,7 @@ export default function NotificationsPage() {
                         {recommendation && (
                           <div className="rounded-xl border border-primary/10 bg-primary/5 p-4">
                             <p className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                              Rekomendasi Tindakan
+                              Recommended Action
                             </p>
                             <p className="mt-2 text-sm font-medium text-foreground leading-relaxed">
                               {recommendation}
@@ -511,9 +425,9 @@ export default function NotificationsPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center gap-3">
                 <BellOff className="h-12 w-12 text-muted-foreground/20" />
-                <p className="text-sm font-medium text-muted-foreground">Belum ada history AI insight.</p>
+                <p className="text-sm font-medium text-muted-foreground">No AI insight history yet.</p>
                 <p className="text-xs text-muted-foreground max-w-xs">
-                  Backend belum mengembalikan data history insight untuk saat ini.
+                  The backend has not returned insight history data yet.
                 </p>
               </CardContent>
             </Card>

@@ -28,7 +28,7 @@ export default function AdminLoginPage() {
 
     try {
       const data = await loginAdmin(email, password);
-      // Simpan credentials di localStorage supaya bisa dipickup oleh cinetrack-api.ts dan firebase.ts (mock useUser)
+      // Store credentials in localStorage so cinetrack-api.ts and firebase.ts (mock useUser) can access them
       localStorage.setItem("cinetrack_token", data.token);
       localStorage.setItem("cinetrack_user", JSON.stringify(data.user));
       

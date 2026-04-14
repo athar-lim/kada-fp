@@ -3,7 +3,7 @@ import type { DateRange } from "react-day-picker";
 
 import type { DashboardQuery } from "@/lib/cinetrack-api";
 
-/** Query string keys shared across Dashboard, Film Performance, dan Sales Analytics. */
+/** Query string keys shared across Dashboard, Film Performance, and Sales Analytics. */
 export const DASHBOARD_FILTER_KEYS = {
   city: "city",
   cinema_id: "cinema_id",
@@ -41,8 +41,8 @@ export function dashboardFiltersToQuery(
 }
 
 /**
- * Menyalin filter aktif ke halaman lain. Jika sedang di /dashboard/cities/[city],
- * parameter `city` ikut terisi agar Film/Sales tetap pada kota yang sama.
+ * Copies active filters to another page. When currently at /dashboard/cities/[city],
+ * the `city` parameter is preserved so Film/Sales stay scoped to the same city.
  */
 export function mergeParamsForDashboardLink(
   targetPath: string,
