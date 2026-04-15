@@ -49,3 +49,8 @@ Dashboard page at [app/dashboard/page.tsx](/C:/Users/user/Documents/KADA%20BATCH
 - `GET /system/health`
 
 Shared API helpers live in [lib/cinetrack-api.ts](/C:/Users/user/Documents/KADA%20BATCH%203%202026/kada-fp/lib/cinetrack-api.ts).
+
+## Dashboard Access
+
+The dashboard can be accessed at:
+👉 https://kada-fp.vercel.app/dashboard
